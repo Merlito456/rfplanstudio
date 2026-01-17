@@ -47,8 +47,9 @@ const workerCode = `
   const EARTH_RADIUS_KM = 6371;
 
   const calculateHata = (distKm, freqMhz, hb, hm) => {
-    if (distKm < 0.01) return 32.44 + 20 * Math.log10(distKm || 0.01) + 20 * Math.log10(freqMhz);
-    const logF = Math.log10(freqMhz), logHb = Math.log10(hb);
+    const f = freqMhz || 1800;
+    if (distKm < 0.01) return 32.44 + 20 * Math.log10(distKm || 0.01) + 20 * Math.log10(f);
+    const logF = Math.log10(f), logHb = Math.log10(hb);
     const aHm = (1.1 * logF - 0.7) * hm - (1.56 * logF - 0.8);
     return 69.55 + 26.16 * logF - 13.82 * logHb - aHm + (44.9 - 6.55 * logHb) * Math.log10(distKm);
   };
@@ -61,14 +62,13 @@ const workerCode = `
     const lats = sites.map(s => s.lat), lngs = sites.map(s => s.lng);
     const minLat = Math.min(...lats) - 0.08, maxLat = Math.max(...lats) + 0.08;
     const minLng = Math.min(...lngs) - 0.08, maxLng = Math.max(...lngs) + 0.08;
-    const step = config.step || 0.0004;
+    const step = config.step || 0.0003; // Higher density default
 
     for (let lat = minLat; lat <= maxLat; lat += step) {
       for (let lng = minLng; lng <= maxLng; lng += step) {
         let bestRsrp = -150;
         
         for (const site of sites) {
-          // Quick bounding box check (max 10km)
           const dLatRough = Math.abs(lat - site.lat);
           const dLngRough = Math.abs(lng - site.lng);
           if (dLatRough > 0.1 || dLngRough > 0.1) continue;
@@ -77,7 +77,7 @@ const workerCode = `
           const dLng = (lng - site.lng) * (Math.PI / 180);
           const a = Math.sin(dLat/2) ** 2 + Math.cos(site.lat * Math.PI/180) * Math.cos(lat * Math.PI/180) * Math.sin(dLng/2) ** 2;
           const distKm = EARTH_RADIUS_KM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-          if (distKm > 8) continue;
+          if (distKm > 10) continue;
           
           const distM = distKm * 1000;
           const y = Math.sin(dLng) * Math.cos(lat * (Math.PI / 180));
@@ -90,11 +90,9 @@ const workerCode = `
             const ant = antennaLibrary.find(al => al.id === sector.antennaId);
             if (!ant) continue;
 
-            // Horizontal Pattern Loss
             const horizAngleDiff = Math.abs(((angleDeg - sector.azimuth + 180) % 360) - 180);
             const horizLoss = Math.min(35, 12 * Math.pow(horizAngleDiff / (ant.horizontalBeamwidth / 2), 2));
 
-            // Vertical Pattern Loss
             const heightDiff = (sector.heightM || site.towerHeightM) - 1.5;
             const verticalAngleToTarget = (Math.atan2(heightDiff, distM) * 180) / Math.PI;
             const effectiveTilt = (sector.mechanicalTilt || 0) + (sector.electricalTilt || 0);
@@ -108,10 +106,11 @@ const workerCode = `
             if (rsrp > bestRsrp) bestRsrp = rsrp;
           }
         }
-        if (bestRsrp > -115) points.push({ lat, lng, rsrp: bestRsrp });
+        if (bestRsrp > -120) points.push({ lat, lng, rsrp: bestRsrp });
       }
     }
-    self.postMessage(points);
+    // Include the step in the output so Heatmap can scale correctly
+    self.postMessage({ points, step });
   };
 `;
 
@@ -125,7 +124,7 @@ const App: React.FC = () => {
   const [isSimulating, setIsSimulating] = useState(false);
   const [isSuggesting, setIsSuggesting] = useState(false);
   const [suggestedSites, setSuggestedSites] = useState<any[]>([]);
-  const [coveragePoints, setCoveragePoints] = useState<CoveragePoint[]>([]);
+  const [coverageData, setCoverageData] = useState<{ points: CoveragePoint[], step: number }>({ points: [], step: 0.0003 });
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([
     { role: 'model', text: "Engineering core active. Multi-threaded spatial engine initialized." }
   ]);
@@ -156,7 +155,7 @@ const App: React.FC = () => {
     const blob = new Blob([workerCode], { type: 'application/javascript' });
     simulationWorker.current = new Worker(URL.createObjectURL(blob));
     simulationWorker.current.onmessage = (e) => {
-      setCoveragePoints(e.data);
+      setCoverageData(e.data);
       setIsSimulating(false);
     };
     return () => simulationWorker.current?.terminate();
@@ -320,7 +319,7 @@ const App: React.FC = () => {
   const startSimulation = () => {
     if (sites.length === 0) return;
     setIsSimulating(true);
-    const step = sites.length > 20 ? 0.0006 : 0.00035;
+    const step = sites.length > 20 ? 0.0004 : 0.00025; // Smaller step = more detail
     simulationWorker.current?.postMessage({ 
       sites, 
       antennaLibrary: ANTENNA_LIBRARY, 
@@ -363,7 +362,7 @@ const App: React.FC = () => {
         <button onClick={exportProject} className="w-10 h-10 flex items-center justify-center rounded-xl text-slate-400 hover:text-blue-600" title="Export Project"><Download size={20} /></button>
         <button onClick={() => fileInputRef.current?.click()} className="w-10 h-10 flex items-center justify-center rounded-xl text-slate-400 hover:text-blue-600" title="Import Project"><Upload size={20} /></button>
         <button 
-          onClick={() => { if(confirm("Clear current project?")) { setSites([]); setComments([]); setCoveragePoints([]); localStorage.removeItem(STORAGE_KEY); } }} 
+          onClick={() => { if(confirm("Clear current project?")) { setSites([]); setComments([]); setCoverageData({ points: [], step: 0.0003 }); localStorage.removeItem(STORAGE_KEY); } }} 
           className="w-10 h-10 flex items-center justify-center rounded-xl text-slate-400 hover:text-red-500"
           title="Reset"
         >
@@ -444,7 +443,7 @@ const App: React.FC = () => {
         <div className="flex-grow relative w-full h-full bg-slate-50 overflow-hidden">
           <div className={`absolute inset-0 z-0 ${activeTab === 'map' ? 'visible' : 'invisible pointer-events-none'}`}>
             <div ref={mapContainerRef} className="w-full h-full" />
-            <Heatmap points={coveragePoints} map={mapInstance} />
+            <Heatmap points={coverageData.points} step={coverageData.step} map={mapInstance} />
             {interactionMode === 'probe' && probeLocation && mapInstance && <PhoneSimulator state={phoneState} map={mapInstance} mapVersion={mapVersion} />}
             
             <div className="absolute inset-0 pointer-events-none z-[500]">

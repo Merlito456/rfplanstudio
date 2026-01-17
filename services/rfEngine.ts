@@ -177,19 +177,21 @@ export const optimizeSiteParameters = (site: Site, allSites: Site[], useTerrain:
 };
 
 /**
- * AI Site Search with Smart Azimuth Suggestion
+ * AI Site Search with Mesh Continuity Logic
+ * Prioritizes bridging service gaps rather than just identifying isolated holes.
  */
 export const findOptimalNextSites = (sites: Site[]): {lat: number, lng: number, reason: string, sectors: Sector[]}[] => {
   if (sites.length === 0) return [];
   const lats = sites.map(s => s.lat), lngs = sites.map(s => s.lng);
-  const minLat = Math.min(...lats) - 0.04, maxLat = Math.max(...lats) + 0.04;
-  const minLng = Math.min(...lngs) - 0.04, maxLng = Math.max(...lngs) + 0.04;
+  const minLat = Math.min(...lats) - 0.05, maxLat = Math.max(...lats) + 0.05;
+  const minLng = Math.min(...lngs) - 0.05, maxLng = Math.max(...lngs) + 0.05;
   const currentSites = [...sites];
   const suggestions: any[] = [];
-  const steps = 25; 
+  const steps = 30; 
 
-  for (let s = 0; s < 8; s++) {
-    let bestHole: {lat: number, lng: number, score: number, traffic: number} | null = null;
+  for (let s = 0; s < 6; s++) {
+    let bestCandidate: {lat: number, lng: number, score: number, traffic: number, meshContinuity: number} | null = null;
+    
     for (let i = 0; i <= steps; i++) {
       for (let j = 0; j <= steps; j++) {
         const lat = minLat + i * ((maxLat - minLat) / steps);
@@ -203,18 +205,30 @@ export const findOptimalNextSites = (sites: Site[]): {lat: number, lng: number, 
           if (d2 < minD2) minD2 = d2;
         });
 
-        const score = (Math.max(0, -100 - rsrp) * 2 + traffic * 0.5) * (minD2 < 0.00003 ? 0 : 1);
-        if (!bestHole || score > bestHole.score) bestHole = { lat, lng, score, traffic };
+        // Continuity Factor: favors points that are at the edge of existing signal (-100 to -115 dBm)
+        // rather than points with NO signal at all. This bridges gaps.
+        const meshContinuity = (rsrp > -115 && rsrp < -100) ? 50 : 0;
+        
+        // Final score logic:
+        // Coverage Need (how bad is it?) + Continuity Need (is it bridgeable?) + Traffic demand
+        // minD2 check ensures we don't stack towers on top of each other
+        const coverageDeficit = Math.max(0, -100 - rsrp);
+        const score = (coverageDeficit * 1.5 + meshContinuity + traffic * 0.4) * (minD2 < 0.00002 ? 0 : 1);
+
+        if (!bestCandidate || score > bestCandidate.score) {
+          bestCandidate = { lat, lng, score, traffic, meshContinuity };
+        }
       }
     }
     
-    if (bestHole && bestHole.score > 10) {
-      // Calculate optimized sectors for this suggested location immediately
+    if (bestCandidate && bestCandidate.score > 25) {
+      const isContinuityFocus = bestCandidate.meshContinuity > 0;
+      
       const tempSite: Site = {
-        id: 'temp',
-        name: 'Suggested',
-        lat: bestHole.lat,
-        lng: bestHole.lng,
+        id: `sug-${suggestions.length}`,
+        name: isContinuityFocus ? 'Continuity Node' : 'Expansion Node',
+        lat: bestCandidate.lat,
+        lng: bestCandidate.lng,
         towerHeightM: 30,
         towerType: TowerType.MONOPOLE,
         status: 'planned',
@@ -227,9 +241,9 @@ export const findOptimalNextSites = (sites: Site[]): {lat: number, lng: number, 
       
       const optimizedSectors = optimizeSiteParameters(tempSite, currentSites, true);
       suggestions.push({ 
-        lat: bestHole.lat, 
-        lng: bestHole.lng, 
-        reason: bestHole.traffic > 60 ? "Strategic Capacity" : "Critical Coverage Hole",
+        lat: bestCandidate.lat, 
+        lng: bestCandidate.lng, 
+        reason: isContinuityFocus ? "Signal Continuity Bridge" : (bestCandidate.traffic > 70 ? "High Capacity Injection" : "Edge-of-Network Extension"),
         sectors: optimizedSectors
       });
       

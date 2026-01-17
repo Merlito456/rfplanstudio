@@ -73,10 +73,10 @@ export const suggestNextSite = async (sites: Site[]) => {
   const siteInfo = sites.map(s => `Site ${s.name}: (${s.lat}, ${s.lng})`).join('\n');
 
   const prompt = `
-    Suggest 3 optimal expansion sites based on these locations:
+    Suggest 10 optimal expansion sites based on these locations to fill coverage gaps and improve SINR:
     ${siteInfo}
     Available Antennas: ${antennaContext}
-    Return JSON format only.
+    Return JSON format only. Return exactly 10 suggestions spread geographically.
   `;
 
   try {
@@ -84,7 +84,7 @@ export const suggestNextSite = async (sites: Site[]) => {
       model: "gemini-3-flash-preview",
       contents: prompt,
       config: {
-        systemInstruction: "You are an RF optimization agent. Suggest 3 expansion sites in JSON.",
+        systemInstruction: "You are an RF optimization agent. Suggest exactly 10 expansion sites in JSON.",
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,

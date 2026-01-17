@@ -41,10 +41,27 @@ import {
 
 const STORAGE_KEY = 'rf_plan_studio_current_project_v3';
 
-// ENHANCED WEB WORKER SOURCE - FULL RF ENGINE
+// ENHANCED WEB WORKER SOURCE - FULL RF ENGINE WITH PHYSICS
 const workerCode = `
   const LIGHT_SPEED = 299792458;
   const EARTH_RADIUS_KM = 6371;
+
+  const getSyntheticElevation = (lat, lng) => {
+    return Math.sin(lat * 800) * 45 + Math.cos(lng * 800) * 45 + Math.sin(lat * 5000 + lng * 3000) * 12;
+  };
+
+  const getUrbanClutterLoss = (lat, lng) => {
+    const bx = Math.abs(Math.sin(lat * 7241)); 
+    const by = Math.abs(Math.sin(lng * 7122));
+    if (bx < 0.3 && by < 0.3) return 30; // Dense
+    if (bx < 0.7 && by < 0.7) return 15; // Urban
+    return 0;
+  };
+
+  const calculateDiffractionLoss = (v) => {
+    if (v <= -0.78) return 0;
+    return 6.9 + 20 * Math.log10(Math.sqrt(Math.pow(v - 0.1, 2) + 1) + v - 0.1);
+  };
 
   const calculateHata = (distKm, freqMhz, hb, hm) => {
     const f = freqMhz || 1800;
@@ -57,32 +74,36 @@ const workerCode = `
   self.onmessage = function(e) {
     const { sites, antennaLibrary, config } = e.data;
     const points = [];
-    if (!sites.length) { self.postMessage([]); return; }
+    if (!sites.length) { self.postMessage({ points: [], step: 0 }); return; }
 
     const lats = sites.map(s => s.lat), lngs = sites.map(s => s.lng);
     const minLat = Math.min(...lats) - 0.08, maxLat = Math.max(...lats) + 0.08;
     const minLng = Math.min(...lngs) - 0.08, maxLng = Math.max(...lngs) + 0.08;
-    const step = config.step || 0.0003; // Higher density default
+    const step = config.step || 0.0003; 
 
     for (let lat = minLat; lat <= maxLat; lat += step) {
       for (let lng = minLng; lng <= maxLng; lng += step) {
         let bestRsrp = -150;
+        const clutterLoss = getUrbanClutterLoss(lat, lng);
         
         for (const site of sites) {
           const dLatRough = Math.abs(lat - site.lat);
           const dLngRough = Math.abs(lng - site.lng);
           if (dLatRough > 0.1 || dLngRough > 0.1) continue;
 
-          const dLat = (lat - site.lat) * (Math.PI / 180);
-          const dLng = (lng - site.lng) * (Math.PI / 180);
-          const a = Math.sin(dLat/2) ** 2 + Math.cos(site.lat * Math.PI/180) * Math.cos(lat * Math.PI/180) * Math.sin(dLng/2) ** 2;
+          const latRad = lat * (Math.PI / 180);
+          const siteLatRad = site.lat * (Math.PI / 180);
+          const dLatRad = (lat - site.lat) * (Math.PI / 180);
+          const dLngRad = (lng - site.lng) * (Math.PI / 180);
+
+          const a = Math.sin(dLatRad/2) ** 2 + Math.cos(siteLatRad) * Math.cos(latRad) * Math.sin(dLngRad/2) ** 2;
           const distKm = EARTH_RADIUS_KM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
           if (distKm > 10) continue;
           
           const distM = distKm * 1000;
-          const y = Math.sin(dLng) * Math.cos(lat * (Math.PI / 180));
-          const x = Math.cos(site.lat * (Math.PI / 180)) * Math.sin(lat * (Math.PI / 180)) -
-                    Math.sin(site.lat * (Math.PI / 180)) * Math.cos(lat * (Math.PI / 180)) * Math.cos(dLng);
+          const y = Math.sin(dLngRad) * Math.cos(latRad);
+          const x = Math.cos(siteLatRad) * Math.sin(latRad) -
+                    Math.sin(siteLatRad) * Math.cos(latRad) * Math.cos(dLngRad);
           let angleDeg = (Math.atan2(y, x) * 180) / Math.PI;
           angleDeg = (angleDeg + 360) % 360;
 
@@ -90,26 +111,49 @@ const workerCode = `
             const ant = antennaLibrary.find(al => al.id === sector.antennaId);
             if (!ant) continue;
 
+            // Pattern Loss
             const horizAngleDiff = Math.abs(((angleDeg - sector.azimuth + 180) % 360) - 180);
             const horizLoss = Math.min(35, 12 * Math.pow(horizAngleDiff / (ant.horizontalBeamwidth / 2), 2));
-
             const heightDiff = (sector.heightM || site.towerHeightM) - 1.5;
             const verticalAngleToTarget = (Math.atan2(heightDiff, distM) * 180) / Math.PI;
             const effectiveTilt = (sector.mechanicalTilt || 0) + (sector.electricalTilt || 0);
             const vertAngleDiff = Math.abs(verticalAngleToTarget - effectiveTilt);
             const vertLoss = Math.min(25, 12 * Math.pow(vertAngleDiff / (ant.verticalBeamwidth / 2), 2));
-
             const gainPattern = Math.max(-35, -(horizLoss + vertLoss));
+
+            // Basic Path Loss
             const pathLoss = calculateHata(distKm, sector.frequencyMhz, sector.heightM || site.towerHeightM, 1.5);
-            const rsrp = (sector.txPowerDbm || 43) + ant.gainDbi + gainPattern - pathLoss;
             
+            // Terrain Loss (Knife-Edge Diffraction)
+            let extraLoss = 0;
+            if (config.useTerrain) {
+              const txElev = getSyntheticElevation(site.lat, site.lng) + (sector.heightM || site.towerHeightM);
+              const rxElev = getSyntheticElevation(lat, lng) + 1.5;
+              const samples = 4;
+              let maxV = -Infinity;
+              const wavelength = LIGHT_SPEED / ((sector.frequencyMhz || 1800) * 1e6);
+              
+              for (let i = 1; i <= samples; i++) {
+                const s = i / (samples + 1);
+                const tLat = site.lat + (lat - site.lat) * s;
+                const tLng = site.lng + (lng - site.lng) * s;
+                const tHeight = getSyntheticElevation(tLat, tLng);
+                const losHeight = txElev + (rxElev - txElev) * s;
+                const d1 = distM * s;
+                const d2 = distM * (1 - s);
+                const v = (tHeight - losHeight) * Math.sqrt((2 * (d1 + d2)) / (wavelength * d1 * d2));
+                if (v > maxV) maxV = v;
+              }
+              extraLoss += calculateDiffractionLoss(maxV);
+            }
+
+            const rsrp = (sector.txPowerDbm || 43) + ant.gainDbi + gainPattern - pathLoss - clutterLoss - extraLoss;
             if (rsrp > bestRsrp) bestRsrp = rsrp;
           }
         }
         if (bestRsrp > -120) points.push({ lat, lng, rsrp: bestRsrp });
       }
     }
-    // Include the step in the output so Heatmap can scale correctly
     self.postMessage({ points, step });
   };
 `;
@@ -319,7 +363,7 @@ const App: React.FC = () => {
   const startSimulation = () => {
     if (sites.length === 0) return;
     setIsSimulating(true);
-    const step = sites.length > 20 ? 0.0004 : 0.00025; // Smaller step = more detail
+    const step = sites.length > 20 ? 0.0004 : 0.00025; 
     simulationWorker.current?.postMessage({ 
       sites, 
       antennaLibrary: ANTENNA_LIBRARY, 

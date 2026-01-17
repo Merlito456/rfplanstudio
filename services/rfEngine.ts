@@ -183,13 +183,17 @@ export const optimizeSiteParameters = (site: Site, allSites: Site[], useTerrain:
 export const findOptimalNextSites = (sites: Site[]): {lat: number, lng: number, reason: string, sectors: Sector[]}[] => {
   if (sites.length === 0) return [];
   const lats = sites.map(s => s.lat), lngs = sites.map(s => s.lng);
-  const minLat = Math.min(...lats) - 0.05, maxLat = Math.max(...lats) + 0.05;
-  const minLng = Math.min(...lngs) - 0.05, maxLng = Math.max(...lngs) + 0.05;
+  
+  // Expand search area slightly more for the 20-site suggestion
+  const minLat = Math.min(...lats) - 0.08, maxLat = Math.max(...lats) + 0.08;
+  const minLng = Math.min(...lngs) - 0.08, maxLng = Math.max(...lngs) + 0.08;
+  
   const currentSites = [...sites];
   const suggestions: any[] = [];
-  const steps = 30; 
+  const steps = 40; // Higher granularity for 20 suggestions
 
-  for (let s = 0; s < 6; s++) {
+  // Loop 20 times to provide at least 20 site locations as requested
+  for (let s = 0; s < 20; s++) {
     let bestCandidate: {lat: number, lng: number, score: number, traffic: number, meshContinuity: number} | null = null;
     
     for (let i = 0; i <= steps; i++) {
@@ -206,14 +210,14 @@ export const findOptimalNextSites = (sites: Site[]): {lat: number, lng: number, 
         });
 
         // Continuity Factor: favors points that are at the edge of existing signal (-100 to -115 dBm)
-        // rather than points with NO signal at all. This bridges gaps.
-        const meshContinuity = (rsrp > -115 && rsrp < -100) ? 50 : 0;
+        // rather than points with NO signal at all. This bridges gaps for continuous service.
+        const meshContinuity = (rsrp > -118 && rsrp < -102) ? 60 : 0;
         
         // Final score logic:
         // Coverage Need (how bad is it?) + Continuity Need (is it bridgeable?) + Traffic demand
-        // minD2 check ensures we don't stack towers on top of each other
+        // minD2 check (0.00003 ~300m) ensures we don't stack towers too close
         const coverageDeficit = Math.max(0, -100 - rsrp);
-        const score = (coverageDeficit * 1.5 + meshContinuity + traffic * 0.4) * (minD2 < 0.00002 ? 0 : 1);
+        const score = (coverageDeficit * 1.8 + meshContinuity + traffic * 0.3) * (minD2 < 0.00003 ? 0 : 1);
 
         if (!bestCandidate || score > bestCandidate.score) {
           bestCandidate = { lat, lng, score, traffic, meshContinuity };
@@ -221,12 +225,12 @@ export const findOptimalNextSites = (sites: Site[]): {lat: number, lng: number, 
       }
     }
     
-    if (bestCandidate && bestCandidate.score > 25) {
+    if (bestCandidate && bestCandidate.score > 15) {
       const isContinuityFocus = bestCandidate.meshContinuity > 0;
       
       const tempSite: Site = {
         id: `sug-${suggestions.length}`,
-        name: isContinuityFocus ? 'Continuity Node' : 'Expansion Node',
+        name: isContinuityFocus ? `Continuity Node ${s + 1}` : `Expansion Node ${s + 1}`,
         lat: bestCandidate.lat,
         lng: bestCandidate.lng,
         towerHeightM: 30,
@@ -243,7 +247,7 @@ export const findOptimalNextSites = (sites: Site[]): {lat: number, lng: number, 
       suggestions.push({ 
         lat: bestCandidate.lat, 
         lng: bestCandidate.lng, 
-        reason: isContinuityFocus ? "Signal Continuity Bridge" : (bestCandidate.traffic > 70 ? "High Capacity Injection" : "Edge-of-Network Extension"),
+        reason: isContinuityFocus ? "Signal Continuity Bridge" : (bestCandidate.traffic > 65 ? "High-Traffic Capacity Node" : "Edge Coverage Extension"),
         sectors: optimizedSectors
       });
       

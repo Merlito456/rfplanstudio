@@ -86,11 +86,9 @@ export const calculateRSRP = (
   let angleDeg = (Math.atan2(y, x) * 180) / Math.PI;
   angleDeg = (angleDeg + 360) % 360;
 
-  // Horizontal Pattern Loss
   const horizAngleDiff = Math.abs(((angleDeg - sector.azimuth + 180) % 360) - 180);
   const horizLoss = Math.min(35, 12 * Math.pow(horizAngleDiff / (antenna.horizontalBeamwidth / 2), 2));
 
-  // Vertical Pattern Loss
   const heightDiff = (sector.heightM || site.towerHeightM) - 1.5;
   const verticalAngleToTarget = (Math.atan2(heightDiff, distM) * 180) / Math.PI;
   const effectiveTilt = (sector.mechanicalTilt || 0) + (sector.electricalTilt || 0);
@@ -100,7 +98,6 @@ export const calculateRSRP = (
   const gainPattern = Math.max(-35, -(horizLoss + vertLoss));
   const pathLoss = calculateHata(distKm, sector.frequencyMhz, sector.heightM || site.towerHeightM, 1.5);
   
-  // Terrain Diffraction (Knife-Edge)
   let extraLoss = 0;
   if (useTerrain) {
     const txElev = getSyntheticElevation(site.lat, site.lng) + (sector.heightM || site.towerHeightM);
@@ -177,22 +174,21 @@ export const optimizeSiteParameters = (site: Site, allSites: Site[], useTerrain:
 };
 
 /**
- * AI Site Search with Mesh Continuity Logic
- * Generates AT LEAST 20 site suggestions to ensure optimal and continuous expansion.
+ * AI Site Search with Neighbor Proximity Logic
+ * Generates 20 sites that expand the network by staying within handover distance of existing nodes.
  */
 export const findOptimalNextSites = (sites: Site[]): {lat: number, lng: number, reason: string, sectors: Sector[]}[] => {
   if (sites.length === 0) return [];
   const lats = sites.map(s => s.lat), lngs = sites.map(s => s.lng);
   
-  // Dynamic project bounds
-  const minLat = Math.min(...lats) - 0.15, maxLat = Math.max(...lats) + 0.15;
-  const minLng = Math.min(...lngs) - 0.15, maxLng = Math.max(...lngs) + 0.15;
+  // Search area anchored around existing sites
+  const minLat = Math.min(...lats) - 0.12, maxLat = Math.max(...lats) + 0.12;
+  const minLng = Math.min(...lngs) - 0.12, maxLng = Math.max(...lngs) + 0.12;
   
   const currentSites = [...sites];
   const suggestions: any[] = [];
-  const steps = 50; 
+  const steps = 45; 
 
-  // Forced loop to 20 suggestions for comprehensive network growth
   for (let s = 0; s < 20; s++) {
     let bestCandidate: {lat: number, lng: number, score: number, traffic: number, meshContinuity: number} | null = null;
     
@@ -209,22 +205,32 @@ export const findOptimalNextSites = (sites: Site[]): {lat: number, lng: number, 
           if (d2 < minD2) minD2 = d2;
         });
 
-        // "Mesh Continuity" Heuristic:
-        // Ideal sites bridge existing handover boundaries (nominally -105dBm to -115dBm).
-        // If RSRP is too strong, we are wasting resources. If too weak, we are creating an isolated island.
+        const distMeters = Math.sqrt(minD2) * 111000; // Rough conversion for scoring
+
+        /**
+         * "Stitching Zone" Heuristic:
+         * We want the new site to be near neighbors for handovers.
+         * Optimal handover distance for 1800-2100MHz is usually 600m to 1200m.
+         * Too close (< 400m) is waste/interference. Too far (> 2000m) creates gaps.
+         */
+        let proximityBonus = 0;
+        if (distMeters >= 400 && distMeters <= 2000) {
+          // Peaks at 800m
+          proximityBonus = 100 - (Math.abs(distMeters - 800) / 12);
+        }
+
         let meshContinuity = 0;
         if (rsrp > -118 && rsrp < -100) {
-           meshContinuity = 120 - Math.abs(rsrp + 108); // Peaks at -108dBm
+           meshContinuity = 120 - Math.abs(rsrp + 109); 
         }
         
         const coverageDeficit = Math.max(0, -100 - rsrp);
         
-        // Multi-factor Scoring
-        // Weighting: Continuity (Handover) > Coverage Hole > Traffic Density
-        const distPenalty = minD2 < 0.00004 ? 0 : 1; // ~400m min separation
-        const isolationPenalty = rsrp < -130 ? 0.4 : 1.0; // Avoid "floating" sites far from the network mesh
+        // Final Score: Proximity + Continuity are key for "Optimal Expansion"
+        const distPenalty = distMeters < 400 ? 0 : 1; 
+        const isolationPenalty = distMeters > 3000 ? 0.2 : 1.0; // Strictly enforce "near neighbor" rule
 
-        const score = (coverageDeficit * 1.8 + meshContinuity * 2.2 + traffic * 0.5) * distPenalty * isolationPenalty;
+        const score = (coverageDeficit * 1.5 + meshContinuity * 2.0 + proximityBonus * 1.8 + traffic * 0.4) * distPenalty * isolationPenalty;
 
         if (!bestCandidate || score > bestCandidate.score) {
           bestCandidate = { lat, lng, score, traffic, meshContinuity };
@@ -233,11 +239,11 @@ export const findOptimalNextSites = (sites: Site[]): {lat: number, lng: number, 
     }
     
     if (bestCandidate) {
-      const isContinuityFocus = bestCandidate.meshContinuity > 60;
+      const isContinuityFocus = bestCandidate.meshContinuity > 50;
       
       const tempSite: Site = {
         id: `sug-${suggestions.length}`,
-        name: isContinuityFocus ? `Continuity Node ${s + 1}` : `Expansion Node ${s + 1}`,
+        name: `Expansion Node ${s + 1}`,
         lat: bestCandidate.lat,
         lng: bestCandidate.lng,
         towerHeightM: 30,
@@ -254,11 +260,10 @@ export const findOptimalNextSites = (sites: Site[]): {lat: number, lng: number, 
       suggestions.push({ 
         lat: bestCandidate.lat, 
         lng: bestCandidate.lng, 
-        reason: isContinuityFocus ? "Service Handover Stitching" : "Demand-Driven Coverage Expansion",
+        reason: "Proximity Expansion / Handover Stitching",
         sectors: optimizedSectors
       });
       
-      // Update local context for the next iteration to ensure 20 distinct locations
       currentSites.push({ ...tempSite, sectors: optimizedSectors } as any);
     }
   }
@@ -280,13 +285,5 @@ export const getPhoneSignalProfile = (sites: Site[], lat: number, lng: number, u
   });
   allSignals.sort((a, b) => b.rsrp - a.rsrp);
   const serving = allSignals[0] || null;
-  return { 
-    lat, 
-    lng, 
-    rsrp: serving ? serving.rsrp : -150, 
-    sinr: serving ? Math.min(30, serving.rsrp + 105) : -20, 
-    servingCellId: serving ? serving.sectorId : null, 
-    servingSiteName: serving ? serving.siteName : null, 
-    neighbors: allSignals.slice(1, 4).map(s => ({ siteName: s.siteName, rsrp: s.rsrp })) 
-  };
+  return { lat, lng, rsrp: serving ? serving.rsrp : -150, sinr: serving ? Math.min(30, serving.rsrp + 105) : -20, servingCellId: serving ? serving.sectorId : null, servingSiteName: serving ? serving.siteName : null, neighbors: allSignals.slice(1, 4).map(s => ({ siteName: s.siteName, rsrp: s.rsrp })) };
 };

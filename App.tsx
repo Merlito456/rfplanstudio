@@ -96,10 +96,18 @@ const App: React.FC = () => {
     const map = L.map(mapContainerRef.current, { zoomControl: false, maxZoom: 19 }).setView([40.7128, -74.006], 15);
     L.control.zoom({ position: 'bottomright' }).addTo(map);
     setMapInstance(map);
-    const onMove = () => setMapVersion(v => v + 1);
+    const onMove = () => {
+      setMapVersion(v => v + 1);
+      if (interactionMode === 'probe' && probeLocation) {
+        setPhoneState(prev => ({
+          ...prev,
+          ...getPhoneSignalProfile(sites, probeLocation.lat, probeLocation.lng, enableTerrain)
+        }));
+      }
+    };
     map.on('move zoom', onMove);
     return () => { map.off('move zoom', onMove); map.remove(); };
-  }, []);
+  }, [sites, enableTerrain, interactionMode, probeLocation]);
 
   useEffect(() => {
     if (!mapInstance) return;
@@ -127,12 +135,18 @@ const App: React.FC = () => {
     if (!mapInstance) return;
     const onMapClick = (e: L.LeafletMouseEvent) => {
       if (interactionMode === 'placement') deploySite(e.latlng.lat, e.latlng.lng);
-      if (interactionMode === 'probe') setProbeLocation({ lat: e.latlng.lat, lng: e.latlng.lng });
+      if (interactionMode === 'probe') {
+        setProbeLocation({ lat: e.latlng.lat, lng: e.latlng.lng });
+        setPhoneState(prev => ({
+          ...prev,
+          ...getPhoneSignalProfile(sites, e.latlng.lat, e.latlng.lng, enableTerrain)
+        }));
+      }
       if (interactionMode === 'comment') addComment(e.latlng.lat, e.latlng.lng);
     };
     mapInstance.on('click', onMapClick);
     return () => { mapInstance.off('click', onMapClick); };
-  }, [interactionMode, mapInstance]);
+  }, [interactionMode, mapInstance, sites, enableTerrain]);
 
   const deploySite = (lat: number, lng: number, config?: Partial<Site>) => {
     const newSite: Site = { 
@@ -186,7 +200,7 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen w-screen bg-white text-slate-900 font-sans overflow-hidden">
-      {/* Sidebar Navigation: Strictly matches screenshot side vertical bar */}
+      {/* Sidebar Navigation: Consistent with Screenshot */}
       <nav className="flex flex-col w-16 h-full bg-white border-r border-slate-100 items-center py-6 z-[1002] space-y-4 shrink-0">
         <div className="text-blue-600 font-black text-xl mb-6 items-center justify-center w-full h-10 flex">RF</div>
         {[
@@ -198,18 +212,18 @@ const App: React.FC = () => {
           <button 
             key={tab.id}
             onClick={() => setActiveTab(tab.id as any)} 
-            className={`p-2.5 rounded-xl transition-all ${activeTab === tab.id ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-blue-500'}`}
+            className={`w-10 h-10 flex items-center justify-center rounded-xl transition-all ${activeTab === tab.id ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' : 'text-slate-400 hover:text-blue-500'}`}
           >
             <tab.icon size={22} />
           </button>
         ))}
       </nav>
 
-      <main className="flex-grow flex flex-col relative h-full w-full overflow-hidden">
-        {/* Header: Matches screenshot exactly */}
+      <main className="flex-grow flex flex-col relative h-full overflow-hidden">
+        {/* Header: Centered Search and Grouped Tools */}
         <header className="flex h-16 items-center justify-between px-6 bg-white border-b border-slate-100 z-[1000] shrink-0">
           {/* Left: Project Branding */}
-          <div className="flex items-center gap-6 min-w-[200px]">
+          <div className="flex items-center gap-6 min-w-[220px]">
             <div className="flex flex-col">
               <input 
                 value={projectName} 
@@ -231,7 +245,7 @@ const App: React.FC = () => {
                 value={searchQuery} 
                 onChange={(e) => setSearchQuery(e.target.value)} 
                 placeholder="Search..." 
-                className="w-full bg-slate-50 border-none rounded-full pl-10 pr-4 py-2 text-[11px] font-bold text-slate-600 focus:bg-white focus:ring-2 focus:ring-blue-50 transition-all outline-none shadow-sm" 
+                className="w-full bg-slate-50 border-none rounded-full pl-10 pr-4 py-2 text-[11px] font-bold text-slate-600 focus:bg-white focus:ring-2 focus:ring-blue-50 transition-all outline-none" 
               />
               <button type="submit" className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-blue-500">
                 <Search size={14} />
@@ -239,9 +253,9 @@ const App: React.FC = () => {
             </form>
           </div>
 
-          {/* Right: Tools and Deployment */}
-          <div className="flex items-center gap-4 min-w-[300px] justify-end">
-            <div className="flex bg-slate-50 p-1 rounded-full border border-slate-100">
+          {/* Right: Tools & Primary Actions */}
+          <div className="flex items-center gap-4 min-w-[360px] justify-end">
+            <div className="flex bg-slate-50 p-1 rounded-full border border-slate-100 items-center">
               <button onClick={() => setMapType('map')} className={`px-4 py-1 rounded-full text-[9px] font-black uppercase transition-all ${mapType === 'map' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}>Map</button>
               <button onClick={() => setMapType('satellite')} className={`px-4 py-1 rounded-full text-[9px] font-black uppercase transition-all ${mapType === 'satellite' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}>Sat</button>
             </div>
@@ -263,16 +277,26 @@ const App: React.FC = () => {
               ))}
             </div>
 
-            <button 
-              onClick={() => setInteractionMode(interactionMode === 'placement' ? 'none' : 'placement')} 
-              className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all shadow-lg flex items-center gap-2 ${interactionMode === 'placement' ? 'bg-amber-500 text-white' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
-            >
-              <PlusCircle size={14} /> {interactionMode === 'placement' ? 'CANCEL' : 'DEPLOY'}
-            </button>
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={startSimulation}
+                disabled={isSimulating || sites.length === 0}
+                className="px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all shadow-md flex items-center gap-2 bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {isSimulating ? <Loader2 size={14} className="animate-spin" /> : <Maximize2 size={14} />} 
+                SCAN
+              </button>
+              <button 
+                onClick={() => setInteractionMode(interactionMode === 'placement' ? 'none' : 'placement')} 
+                className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all shadow-md flex items-center gap-2 ${interactionMode === 'placement' ? 'bg-amber-500 text-white' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+              >
+                <PlusCircle size={14} /> {interactionMode === 'placement' ? 'CANCEL' : 'DEPLOY'}
+              </button>
+            </div>
           </div>
         </header>
 
-        {/* Workspace: Stretched map container */}
+        {/* Workspace: Stretched map */}
         <div className="flex-grow relative w-full h-full bg-slate-50 overflow-hidden">
           <div className={`absolute inset-0 z-0 ${activeTab === 'map' ? 'visible' : 'invisible pointer-events-none'}`}>
             <div ref={mapContainerRef} className="w-full h-full" />
@@ -293,11 +317,10 @@ const App: React.FC = () => {
                   );
                })}
             </div>
-            {/* Legend positioned per screenshot overlay style */}
             <Legend showSimulator={interactionMode === 'probe' && !!probeLocation} />
           </div>
 
-          {/* Other Views Overlay */}
+          {/* Tab Views Overlay */}
           {activeTab !== 'map' && (
             <div className="absolute inset-0 bg-white z-[1001] overflow-y-auto p-10 animate-in fade-in duration-300">
               <div className="max-w-6xl mx-auto">
@@ -325,34 +348,15 @@ const App: React.FC = () => {
                     <div className="flex-grow bg-slate-50 rounded-3xl p-8 overflow-y-auto mb-6 border border-slate-100 shadow-inner">
                       {chatHistory.map((m, i) => (
                         <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'} mb-4`}>
-                          <div className={`p-5 rounded-2xl max-w-[80%] text-sm ${m.role === 'user' ? 'bg-blue-600 text-white shadow-lg' : 'bg-white border border-slate-200 text-slate-800 shadow-sm'}`}>
+                          <div className={`p-5 rounded-2xl max-w-[80%] text-sm ${m.role === 'user' ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' : 'bg-white border border-slate-200 text-slate-800 shadow-sm'}`}>
                             {m.text}
                           </div>
                         </div>
                       ))}
                     </div>
-                    <div className="flex gap-3 p-3 bg-white rounded-2xl border shadow-xl">
-                      <input type="text" value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendChatMessage()} className="flex-grow px-4 py-3 outline-none font-bold" placeholder="Query RF Engine..." />
+                    <div className="flex gap-3 p-3 bg-white rounded-2xl border shadow-xl items-center">
+                      <input type="text" value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendChatMessage()} className="flex-grow px-4 py-3 outline-none font-bold text-slate-700" placeholder="Ask local RF advisor..." />
                       <button onClick={sendChatMessage} className="bg-blue-600 p-3 rounded-xl text-white hover:bg-blue-700 shadow-lg"><Send size={20} /></button>
-                    </div>
-                  </div>
-                )}
-                {activeTab === 'analytics' && (
-                  <div className="space-y-12">
-                    <h2 className="text-3xl font-black text-slate-800 tracking-tight">Project Metrics</h2>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                       <div className="p-8 bg-white border border-slate-100 rounded-3xl shadow-sm">
-                          <p className="text-slate-400 font-bold uppercase text-[10px] tracking-widest mb-2">Total Sites</p>
-                          <p className="text-6xl font-black text-slate-800">{sites.length}</p>
-                       </div>
-                       <div className="p-8 bg-white border border-slate-100 rounded-3xl shadow-sm">
-                          <p className="text-slate-400 font-bold uppercase text-[10px] tracking-widest mb-2">Active Sectors</p>
-                          <p className="text-6xl font-black text-blue-600">{sites.reduce((a, b) => a + b.sectors.length, 0)}</p>
-                       </div>
-                       <div className="p-8 bg-white border border-slate-100 rounded-3xl shadow-sm">
-                          <p className="text-slate-400 font-bold uppercase text-[10px] tracking-widest mb-2">Comments</p>
-                          <p className="text-6xl font-black text-amber-500">{comments.length}</p>
-                       </div>
                     </div>
                   </div>
                 )}
@@ -362,18 +366,18 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {/* Right Sidebar: Site Configuration */}
+      {/* Right Sidebar: Site Detail Node */}
       <aside className={`fixed inset-y-0 right-0 bg-white text-slate-900 flex flex-col shadow-2xl z-[2000] transition-transform duration-500 ${selectedSiteId ? 'translate-x-0' : 'translate-x-full'} w-full md:w-[420px]`}>
         <div className="flex justify-between items-center p-6 border-b bg-slate-50/30">
-          <h2 className="font-black uppercase tracking-widest text-[11px] text-slate-500">Engineering Node</h2>
-          <button onClick={() => setSelectedSiteId(null)} className="p-2 bg-white border rounded-xl text-slate-400 hover:text-slate-800 shadow-sm"><X size={18} /></button>
+          <h2 className="font-black uppercase tracking-widest text-[11px] text-slate-500">Node Configuration</h2>
+          <button onClick={() => setSelectedSiteId(null)} className="p-2 bg-white border border-slate-100 rounded-xl text-slate-400 hover:text-slate-800 shadow-sm transition-all"><X size={18} /></button>
         </div>
         <div className="p-6 h-full overflow-y-auto custom-scrollbar">
           {selectedSite && <SiteDetails site={selectedSite} allSites={sites} onUpdate={u => setSites(prev => prev.map(s => s.id === u.id ? u : s))} onDelete={() => { setSites(prev => prev.filter(s => s.id !== selectedSite.id)); setSelectedSiteId(null); }} />}
         </div>
         <div className="p-6 border-t bg-slate-50/50 flex gap-3">
-           <button onClick={() => setSelectedSiteId(null)} className="flex-grow py-3 bg-white border border-slate-200 rounded-xl text-[10px] font-black uppercase text-slate-400 hover:bg-slate-100 transition-colors">Close</button>
-           <button onClick={() => { startSimulation(); setSelectedSiteId(null); }} className="flex-grow py-3 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase shadow-lg hover:bg-blue-700 transition-all">Apply coverage</button>
+           <button onClick={() => setSelectedSiteId(null)} className="flex-grow py-3 bg-white border border-slate-200 rounded-xl text-[10px] font-black uppercase text-slate-400 hover:bg-slate-100 transition-colors">Discard</button>
+           <button onClick={() => { startSimulation(); setSelectedSiteId(null); }} className="flex-grow py-3 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase shadow-lg hover:bg-blue-700 transition-all">Apply configuration</button>
         </div>
       </aside>
     </div>

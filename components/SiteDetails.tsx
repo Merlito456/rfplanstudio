@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { Site, TowerType, Sector } from '../types';
 import { ANTENNA_LIBRARY, TOWER_TYPES } from '../constants';
 import { optimizeSiteParameters } from '../services/rfEngine';
-import { Trash2, Plus, Zap, Layers, Ruler, Sparkles, Loader2, Save } from 'lucide-react';
+import { Trash2, Plus, Zap, Layers, Ruler, Sparkles, Loader2, Save, Radio } from 'lucide-react';
 
 interface Props {
   site: Site;
@@ -153,6 +153,13 @@ const SiteDetails: React.FC<Props> = ({ site, allSites, onUpdate, onDelete }) =>
                   </select>
                 </div>
                 
+                <div>
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Frequency (MHz)</label>
+                  <div className="relative">
+                    <input type="number" value={sector.frequencyMhz} onChange={(e) => updateSector(sector.id, { frequencyMhz: Number(e.target.value) })} className="w-full border border-slate-200 rounded-lg pl-3 pr-7 py-2 text-xs font-bold text-slate-800 outline-none focus:border-blue-400" />
+                    <Radio className="absolute right-2 top-2 text-slate-300" size={12} />
+                  </div>
+                </div>
                 <div>
                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Azimuth (°)</label>
                   <input type="number" value={sector.azimuth} onChange={(e) => updateSector(sector.id, { azimuth: Number(e.target.value) })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-blue-400" />

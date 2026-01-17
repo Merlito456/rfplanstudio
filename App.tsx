@@ -41,7 +41,7 @@ import {
 
 const STORAGE_KEY = 'rf_plan_studio_current_project_v3';
 
-// WEB WORKER SOURCE
+// ENHANCED WEB WORKER SOURCE - FULL RF ENGINE
 const workerCode = `
   const LIGHT_SPEED = 299792458;
   const EARTH_RADIUS_KM = 6371;
@@ -59,28 +59,56 @@ const workerCode = `
     if (!sites.length) { self.postMessage([]); return; }
 
     const lats = sites.map(s => s.lat), lngs = sites.map(s => s.lng);
-    const minLat = Math.min(...lats) - 0.1, maxLat = Math.max(...lats) + 0.1;
-    const minLng = Math.min(...lngs) - 0.1, maxLng = Math.max(...lngs) + 0.1;
-    const step = config.step || 0.0003;
+    const minLat = Math.min(...lats) - 0.08, maxLat = Math.max(...lats) + 0.08;
+    const minLng = Math.min(...lngs) - 0.08, maxLng = Math.max(...lngs) + 0.08;
+    const step = config.step || 0.0004;
 
     for (let lat = minLat; lat <= maxLat; lat += step) {
       for (let lng = minLng; lng <= maxLng; lng += step) {
         let bestRsrp = -150;
+        
         for (const site of sites) {
+          // Quick bounding box check (max 10km)
+          const dLatRough = Math.abs(lat - site.lat);
+          const dLngRough = Math.abs(lng - site.lng);
+          if (dLatRough > 0.1 || dLngRough > 0.1) continue;
+
           const dLat = (lat - site.lat) * (Math.PI / 180);
           const dLng = (lng - site.lng) * (Math.PI / 180);
           const a = Math.sin(dLat/2) ** 2 + Math.cos(site.lat * Math.PI/180) * Math.cos(lat * Math.PI/180) * Math.sin(dLng/2) ** 2;
           const distKm = EARTH_RADIUS_KM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-          if (distKm > 10) continue;
+          if (distKm > 8) continue;
           
+          const distM = distKm * 1000;
+          const y = Math.sin(dLng) * Math.cos(lat * (Math.PI / 180));
+          const x = Math.cos(site.lat * (Math.PI / 180)) * Math.sin(lat * (Math.PI / 180)) -
+                    Math.sin(site.lat * (Math.PI / 180)) * Math.cos(lat * (Math.PI / 180)) * Math.cos(dLng);
+          let angleDeg = (Math.atan2(y, x) * 180) / Math.PI;
+          angleDeg = (angleDeg + 360) % 360;
+
           for (const sector of site.sectors) {
-            const loss = calculateHata(distKm, sector.frequencyMhz, sector.heightM || site.towerHeightM, 1.5);
             const ant = antennaLibrary.find(al => al.id === sector.antennaId);
-            const rsrp = (sector.txPowerDbm || 43) + (ant ? ant.gainDbi : 17) - loss;
+            if (!ant) continue;
+
+            // Horizontal Pattern Loss
+            const horizAngleDiff = Math.abs(((angleDeg - sector.azimuth + 180) % 360) - 180);
+            const horizLoss = Math.min(35, 12 * Math.pow(horizAngleDiff / (ant.horizontalBeamwidth / 2), 2));
+
+            // Vertical Pattern Loss
+            const heightDiff = (sector.heightM || site.towerHeightM) - 1.5;
+            const verticalAngleToTarget = (Math.atan2(heightDiff, distM) * 180) / Math.PI;
+            const effectiveTilt = (sector.mechanicalTilt || 0) + (sector.electricalTilt || 0);
+            const vertAngleDiff = Math.abs(verticalAngleToTarget - effectiveTilt);
+            const vertLoss = Math.min(25, 12 * Math.pow(vertAngleDiff / (ant.verticalBeamwidth / 2), 2));
+
+            const gainPattern = Math.max(-35, -(horizLoss + vertLoss));
+            const pathLoss = calculateHata(distKm, sector.frequencyMhz, sector.heightM || site.towerHeightM, 1.5);
+            const rsrp = (sector.txPowerDbm || 43) + ant.gainDbi + gainPattern - pathLoss;
+            
             if (rsrp > bestRsrp) bestRsrp = rsrp;
           }
         }
-        if (bestRsrp > -120) points.push({ lat, lng, rsrp: bestRsrp });
+        if (bestRsrp > -115) points.push({ lat, lng, rsrp: bestRsrp });
       }
     }
     self.postMessage(points);
@@ -180,7 +208,6 @@ const App: React.FC = () => {
     baseLayerRef.current.bringToBack();
   }, [mapType, mapInstance]);
 
-  // Fix: Move map click listener effect from JSX to top-level of component to avoid Type 'void' is not assignable to type 'ReactNode' error.
   useEffect(() => {
     if (!mapInstance) return;
     const onMapClick = (e: L.LeafletMouseEvent) => {
@@ -293,8 +320,12 @@ const App: React.FC = () => {
   const startSimulation = () => {
     if (sites.length === 0) return;
     setIsSimulating(true);
-    const step = sites.length > 30 ? 0.0008 : 0.0004;
-    simulationWorker.current?.postMessage({ sites, antennaLibrary: ANTENNA_LIBRARY, config: { step, useTerrain: enableTerrain } });
+    const step = sites.length > 20 ? 0.0006 : 0.00035;
+    simulationWorker.current?.postMessage({ 
+      sites, 
+      antennaLibrary: ANTENNA_LIBRARY, 
+      config: { step, useTerrain: enableTerrain } 
+    });
   };
 
   const sendChatMessage = async () => {
@@ -310,7 +341,6 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen w-screen bg-white text-slate-900 font-sans overflow-hidden">
-      {/* File Input for Import */}
       <input type="file" ref={fileInputRef} onChange={importProject} accept=".json" className="hidden" />
 
       <nav className="flex flex-col w-16 h-full bg-white border-r border-slate-100 items-center py-6 z-[1002] space-y-4 shrink-0">
@@ -348,7 +378,6 @@ const App: React.FC = () => {
             <div className="flex items-center gap-1 text-[8px] font-black text-slate-400 uppercase tracking-widest mt-0.5"><History size={10} /> {new Date(lastSaved).toLocaleTimeString()}</div>
           </div>
 
-          {/* Search Bar */}
           <div className="flex-grow flex justify-center px-4 max-w-xl relative">
             <form onSubmit={handleSearch} className="relative w-full">
               <input 
@@ -414,11 +443,7 @@ const App: React.FC = () => {
 
         <div className="flex-grow relative w-full h-full bg-slate-50 overflow-hidden">
           <div className={`absolute inset-0 z-0 ${activeTab === 'map' ? 'visible' : 'invisible pointer-events-none'}`}>
-            <div ref={mapContainerRef} className="w-full h-full" onClick={(e) => {
-               if(interactionMode === 'comment') {
-                  // Handled by mapInstance.on('click') but good to have here
-               }
-            }} />
+            <div ref={mapContainerRef} className="w-full h-full" />
             <Heatmap points={coveragePoints} map={mapInstance} />
             {interactionMode === 'probe' && probeLocation && mapInstance && <PhoneSimulator state={phoneState} map={mapInstance} mapVersion={mapVersion} />}
             
@@ -431,7 +456,6 @@ const App: React.FC = () => {
                   const pt = mapInstance.latLngToContainerPoint([s.lat, s.lng]);
                   return <div key={`sug-${idx}`} onClick={(e) => { e.stopPropagation(); deploySite(s.lat, s.lng, s); }} className="absolute pointer-events-auto -translate-x-1/2 -translate-y-1/2 group cursor-pointer" style={{ left: pt.x, top: pt.y }}><div className="w-8 h-8 rounded-full bg-emerald-500 border-2 border-white shadow-xl flex items-center justify-center text-white animate-pulse"><Sparkles size={14} /></div></div>;
                })}
-               {/* Comments Layer */}
                {mapInstance && comments.map(c => {
                   const pt = mapInstance.latLngToContainerPoint([c.lat, c.lng]);
                   return (

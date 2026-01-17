@@ -1,0 +1,7 @@
+{
+  "name": "RFPlan Studio",
+  "description": "A professional-grade RF network planning tool for site management, tower design, antenna configuration, and signal coverage simulation using industry propagation models.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}

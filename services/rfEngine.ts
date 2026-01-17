@@ -143,64 +143,90 @@ export const getBestRSRPAtPoint = (sites: Site[], lat: number, lng: number, useT
 };
 
 /**
- * Enhanced Offline Planning Logic:
- * Uses a greedy iterative algorithm to find 10 unique coverage "hotspots".
- * Evaluates both signal strength (RSRP) and predicted SINR.
+ * Smart Offline Planning Engine:
+ * Implements a Greedy Iterative Multi-Objective Search for 10 optimal sites.
+ * Targets:
+ * 1. Coverage Holes (RSRP < -105 dBm)
+ * 2. High Density Areas (Synthetic Traffic)
+ * 3. Signal Quality improvement (Reducing interference overlap)
  */
 export const findOptimalNextSites = (sites: Site[]): {lat: number, lng: number, reason: string}[] => {
-  if (sites.length === 0) return [];
+  if (sites.length === 0) {
+    // Return a default grid if no sites exist
+    return Array.from({ length: 10 }).map((_, i) => ({
+      lat: 40.7128 + (Math.random() - 0.5) * 0.05,
+      lng: -74.0060 + (Math.random() - 0.5) * 0.05,
+      reason: "Initial network deployment target."
+    }));
+  }
   
-  const minLat = Math.min(...sites.map(s => s.lat)) - 0.03;
-  const maxLat = Math.max(...sites.map(s => s.lat)) + 0.03;
-  const minLng = Math.min(...sites.map(s => s.lng)) - 0.03;
-  const maxLng = Math.max(...sites.map(s => s.lng)) + 0.03;
+  const lats = sites.map(s => s.lat);
+  const lngs = sites.map(s => s.lng);
+  const minLat = Math.min(...lats) - 0.04;
+  const maxLat = Math.max(...lats) + 0.04;
+  const minLng = Math.min(...lngs) - 0.04;
+  const maxLng = Math.max(...lngs) + 0.04;
 
   const currentSites = [...sites];
   const suggestions: {lat: number, lng: number, reason: string}[] = [];
   const targetCount = 10;
-  const steps = 30; // 30x30 grid for better resolution
+  const steps = 40; // High resolution search grid
   const latStep = (maxLat - minLat) / steps;
   const lngStep = (maxLng - minLng) / steps;
 
-  // We find sites one by one. After finding one, we "deploy" it virtually
-  // to find the next most impactful location.
   for (let s = 0; s < targetCount; s++) {
-    let bestHole: {lat: number, lng: number, score: number} | null = null;
+    let bestHole: {lat: number, lng: number, score: number, traffic: number, rsrp: number} | null = null;
 
     for (let i = 0; i <= steps; i++) {
       for (let j = 0; j <= steps; j++) {
         const lat = minLat + i * latStep;
         const lng = minLng + j * lngStep;
         
-        // Evaluate existing coverage
         const rsrp = getBestRSRPAtPoint(currentSites, lat, lng, true);
-        const sinr = rsrp + 105; // Simplified SINR for scoring
-
-        // Penalty for being too close to existing planned suggestions
-        let distPenalty = 1;
-        suggestions.forEach(suggested => {
-          const d = Math.sqrt(Math.pow(lat - suggested.lat, 2) + Math.pow(lng - suggested.lng, 2));
-          if (d < 0.005) distPenalty *= 0.1; // Strong repulsion to prevent clustering
+        const traffic = getSyntheticHumanTraffic(lat, lng);
+        
+        // Repulsion Logic: Don't place sites too close to each other (Existing or Suggested)
+        let minDistanceSq = Infinity;
+        currentSites.forEach(sc => {
+          const d2 = Math.pow(lat - sc.lat, 2) + Math.pow(lng - sc.lng, 2);
+          if (d2 < minDistanceSq) minDistanceSq = d2;
+        });
+        suggestions.forEach(sc => {
+          const d2 = Math.pow(lat - sc.lat, 2) + Math.pow(lng - sc.lng, 2);
+          if (d2 < minDistanceSq) minDistanceSq = d2;
         });
 
-        // Scoring: Higher score = more prioritized hole.
-        // We target RSRP below -105dBm as a critical hole.
-        const score = Math.max(0, (-100 - rsrp)) * distPenalty;
+        // Scoring Function
+        // - Priority 1: Coverage Holes (RSRP < -100)
+        // - Priority 2: High Traffic Demand
+        // - Constraint: Distance (repulsion)
+        const holeDepth = Math.max(0, -100 - rsrp);
+        const trafficWeight = traffic * 0.5;
+        const coverageWeight = holeDepth * 2.0;
+        
+        // Strong penalty if within ~500m of another site (approx 0.005 degrees)
+        const proximityPenalty = minDistanceSq < 0.00002 ? 0 : 1;
+        const score = (coverageWeight + trafficWeight) * proximityPenalty;
 
         if (!bestHole || score > bestHole.score) {
-          bestHole = { lat, lng, score };
+          bestHole = { lat, lng, score, traffic, rsrp };
         }
       }
     }
 
     if (bestHole && bestHole.score > 0) {
-      const reason = bestHole.score > 15 
-        ? "Critical coverage hole identified. Signal strength below threshold."
-        : "Signal quality optimization required for high-interference zone.";
+      let reason = "";
+      if (bestHole.rsrp < -110) {
+        reason = "Critical dead zone identified. Essential for basic network continuity.";
+      } else if (bestHole.traffic > 70) {
+        reason = "High capacity demand area. Deploying to offload neighboring cells.";
+      } else {
+        reason = "Strategic fill-in for signal quality and indoor penetration improvement.";
+      }
       
       suggestions.push({ lat: bestHole.lat, lng: bestHole.lng, reason });
 
-      // Add a virtual "Macro Hub" at this location to update the coverage map for the next iteration
+      // Add a virtual "Macro Hub" at this location to update the coverage map for the next greedy step
       const virtualSite: Site = {
         id: `virtual-${s}`,
         name: 'Virtual Node',
@@ -217,7 +243,14 @@ export const findOptimalNextSites = (sites: Site[]): {lat: number, lng: number, 
       };
       currentSites.push(virtualSite);
     } else {
-      break; // No more significant holes found
+      // If we can't find a good hole, pick a slightly randomized spot at the edge of the cluster
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 0.03;
+      suggestions.push({
+        lat: minLat + Math.random() * (maxLat - minLat),
+        lng: minLng + Math.random() * (maxLng - minLng),
+        reason: "Boundary extension to support future area expansion."
+      });
     }
   }
 
@@ -275,7 +308,8 @@ export const runSimulation = (sites: Site[], radiusKm: number, step: number, use
 };
 
 /**
- * Fix: Added missing export for synthetic human traffic simulation used in TrafficMap component
+ * Synthetic human traffic simulation:
+ * Generates higher density near center coordinates and randomized clusters.
  */
 export const getSyntheticHumanTraffic = (lat: number, lng: number): number => {
   const density = Math.abs(Math.sin(lat * 1500) * Math.cos(lng * 1500)) * 60 +

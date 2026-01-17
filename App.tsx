@@ -31,7 +31,8 @@ import {
   Zap,
   Trash2,
   RefreshCcw,
-  Sparkles
+  Sparkles,
+  Activity
 } from 'lucide-react';
 
 const STORAGE_KEY = 'rf_plan_studio_current_project_v3';
@@ -182,6 +183,12 @@ const App: React.FC = () => {
       alert("Deploy at least one initial site before requesting AI expansion.");
       return;
     }
+    // Toggle suggestions visibility if already calculated
+    if (suggestedSites.length > 0) {
+      setSuggestedSites([]);
+      return;
+    }
+
     setIsSuggesting(true);
     try {
       const result = await suggestNextSite(sites);
@@ -307,26 +314,25 @@ const App: React.FC = () => {
             
             <div className="flex items-center gap-1.5">
               {[
-                { id: 'terrain', icon: Landmark, action: () => setEnableTerrain(!enableTerrain), active: enableTerrain },
-                { id: 'traffic', icon: Target, action: () => setInteractionMode(interactionMode === 'traffic' ? 'none' : 'traffic'), active: interactionMode === 'traffic' },
-                { id: 'comment', icon: MessageSquare, action: () => setInteractionMode(interactionMode === 'comment' ? 'none' : 'comment'), active: interactionMode === 'comment' },
-                { id: 'probe', icon: Crosshair, action: () => setInteractionMode(interactionMode === 'probe' ? 'none' : 'probe'), active: interactionMode === 'probe' }
+                { id: 'terrain', icon: Landmark, action: () => setEnableTerrain(!enableTerrain), active: enableTerrain, label: 'Terrain Propagation' },
+                { id: 'suggest', icon: Target, action: handleAISuggestSite, active: isSuggesting || suggestedSites.length > 0, label: 'AI Site Expansion', loading: isSuggesting },
+                { id: 'traffic', icon: Activity, action: () => setInteractionMode(interactionMode === 'traffic' ? 'none' : 'traffic'), active: interactionMode === 'traffic', label: 'Network Load Map' },
+                { id: 'comment', icon: MessageSquare, action: () => setInteractionMode(interactionMode === 'comment' ? 'none' : 'comment'), active: interactionMode === 'comment', label: 'Field Note' },
+                { id: 'probe', icon: Crosshair, action: () => setInteractionMode(interactionMode === 'probe' ? 'none' : 'probe'), active: interactionMode === 'probe', label: 'Signal Probe' }
               ].map(tool => (
                 <button 
                   key={tool.id}
                   onClick={tool.action} 
-                  className={`w-9 h-9 rounded-full border flex items-center justify-center transition-all ${tool.active ? 'bg-blue-50 border-blue-200 text-blue-600' : 'bg-white border-slate-200 text-slate-400 hover:border-slate-300'}`}
+                  title={tool.label}
+                  className={`w-9 h-9 rounded-full border flex items-center justify-center transition-all relative ${tool.active ? 'bg-blue-50 border-blue-200 text-blue-600 shadow-sm' : 'bg-white border-slate-200 text-slate-400 hover:border-slate-300'}`}
                 >
-                  <tool.icon size={16} />
+                  {tool.loading ? <Loader2 size={16} className="animate-spin" /> : <tool.icon size={16} />}
+                  {tool.id === 'suggest' && suggestedSites.length > 0 && !isSuggesting && <div className="absolute top-0 right-0 w-2 h-2 bg-emerald-500 rounded-full border border-white"></div>}
                 </button>
               ))}
             </div>
 
             <div className="flex items-center gap-2">
-              <button onClick={handleAISuggestSite} disabled={isSuggesting || sites.length === 0} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-2 ${isSuggesting ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-white border border-slate-200 text-emerald-600 hover:bg-emerald-50'}`}>
-                {isSuggesting ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                SUGGEST
-              </button>
               <button onClick={startSimulation} disabled={isSimulating || sites.length === 0} className="px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all bg-blue-600 text-white hover:bg-blue-700 shadow-md flex items-center gap-2 disabled:opacity-50">
                 {isSimulating ? <Loader2 size={14} className="animate-spin" /> : <Maximize2 size={14} />} 
                 SCAN

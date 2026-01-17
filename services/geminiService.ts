@@ -14,12 +14,12 @@ export const getRFAdvice = async (sites: Site[], query: string): Promise<string>
   if (process.env.API_KEY) {
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const prompt = `Project has ${sites.length} sites. User Query: "${query}". Context: Using Signal Stitching and Mesh Continuity logic for optimal expansion. The tool now suggests 20+ site locations simultaneously to bridge handover boundaries and ensure continuous service coverage.`;
+      const prompt = `Project has ${sites.length} sites. User Query: "${query}". Context: Using Proximity Expansion and Mesh Continuity logic. The algorithm ensures new nodes are placed specifically at the service fringe (-105 to -115 dBm) and within 500m-1200m of neighbor nodes for optimal handovers.`;
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
         contents: prompt,
         config: {
-          systemInstruction: "You are a world-class RF planning engineer. Provide technical, professional advice. Focus on 'Mesh Stitching' and 'Service Continuity'. Explain that the suggestion tool generates at least 20 sites specifically at the service boundary fringe (-105 to -115 dBm) to bridge clusters and ensure a stable handover layer without signal drops."
+          systemInstruction: "You are a world-class RF planning engineer. Focus on 'Proximity Expansion' and 'Handover Reliability'. Explain that the tool suggests 20 sites specifically near existing neighbor sites (the 'Stitching Zone') to build a robust, continuous network fabric without coverage islands."
         }
       });
       return response.text || "Engineering core returned an empty response.";
@@ -36,16 +36,14 @@ export const getRFAdvice = async (sites: Site[], query: string): Promise<string>
   let response = `### Engineering Core Output [Local Engine]\n\n`;
 
   if (normalizedQuery.includes('azimuth') || normalizedQuery.includes('orient')) {
-    response += `**Service Signal Stitching:** The engine is evaluating the 'overlap zone' between cell edges. For new suggestions, Alpha sectors are steered towards dominant neighbors to facilitate a reliable handover boundary.\n\n`;
-    response += `**Interference Mitigation:** Sidelobe interference is minimized by offsetting boresights from the primary server's back-lobes.\n`;
+    response += `**Handover Vector Analysis:** New suggestions are steered to face neighbors at the 1200m boundary. This ensures that the primary serving area overlaps with the neighbor's cell edge for reliable signal re-selection.\n\n`;
+    response += `**Interference Control:** Avoidance logic is active to ensure the boresight of new sites does not point directly into the center of existing cells.\n`;
   } else if (normalizedQuery.includes('continuity') || normalizedQuery.includes('signal') || normalizedQuery.includes('handover') || normalizedQuery.includes('suggest') || normalizedQuery.includes('next')) {
-    response += `**Continuous Expansion Strategy:** The expansion algorithm is currently tasked with generating **20 optimal node locations**. \n\n`;
-    response += `**Mesh Continuity:** Locations are selected at the handover boundary (nominally -109 dBm) where signal strength is sufficient for session maintenance but low enough to justify new capacity.\n\n`;
-    response += `**Optimal Deployment:** These 20 nodes collectively create a continuous coverage fabric, eliminating 'dead zones' and ensuring mobile devices maintain a serving cell throughout the expansion area.\n`;
-  } else if (normalizedQuery.includes('tilt')) {
-    response += `**Tilt Policy:** Your cluster features ${highTiltSectors.length} sectors with aggressive tilt. This strategy is ideal for 'Mesh Continuity' as it creates clean handover boundaries and reduces inter-site interference.\n`;
+    response += `**Proximity Expansion Strategy:** The tool is currently proposing **20 sequential sites** that expand the network footprint while maintaining strict adjacency.\n\n`;
+    response += `**The Stitching Zone:** Each suggestion is calculated to be between 500m and 1200m from a dominant neighbor. This creates a high-density 'mesh' that prevents calls from dropping during movement.\n\n`;
+    response += `**Growth Potential:** With ${sites.length} current sites, the proposed layer ensures that signal expansion follows a 'ripple' pattern, hardening the core coverage area before pushing into the extreme fringe.\n`;
   } else {
-    response += `**System Health:** The current project has ${sites.length} sites. To ensure optimal signal expansion, use the 'Suggest Expansion' tool to deploy the 20-node growth layer.\n`;
+    response += `**System Health:** The current topology is optimized for 'Continuous Service'. Suggesting 20 nodes ensures that the network grows as a cohesive fabric rather than a collection of isolated islands.\n`;
   }
 
   return response;

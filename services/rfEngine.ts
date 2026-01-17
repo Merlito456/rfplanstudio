@@ -19,25 +19,34 @@ const getQuickDistSq = (lat1: number, lng1: number, lat2: number, lng2: number):
 };
 
 /**
- * Elevation Engine
+ * Elevation Engine (Synthetic Topography)
  */
 const getSyntheticElevation = (lat: number, lng: number): number => {
   return Math.sin(lat * 800) * 45 + Math.cos(lng * 800) * 45 + Math.sin(lat * 5000 + lng * 3000) * 12;
 };
 
+/**
+ * Urban Clutter Loss Model
+ */
 export const getUrbanClutterLoss = (lat: number, lng: number): number => {
   const bx = Math.abs(Math.sin(lat * 7241)); 
   const by = Math.abs(Math.sin(lng * 7122));
-  if (bx < 0.3 && by < 0.3) return 30; // Dense
+  if (bx < 0.3 && by < 0.3) return 30; // Dense Urban
   if (bx < 0.7 && by < 0.7) return 15; // Urban
-  return 0;
+  return 0; // Rural/Open
 };
 
+/**
+ * Knife-Edge Diffraction Loss
+ */
 const calculateDiffractionLoss = (v: number): number => {
   if (v <= -0.78) return 0;
   return 6.9 + 20 * Math.log10(Math.sqrt(Math.pow(v - 0.1, 2) + 1) + v - 0.1);
 };
 
+/**
+ * Hata Propagation Model
+ */
 export const calculateHata = (distKm: number, freqMhz: number, hb: number, hm: number): number => {
   if (distKm < 0.01) return 32.44 + 20 * Math.log10(distKm || 0.01) + 20 * Math.log10(freqMhz);
   const logF = Math.log10(freqMhz);
@@ -46,6 +55,9 @@ export const calculateHata = (distKm: number, freqMhz: number, hb: number, hm: n
   return 69.55 + 26.16 * logF - 13.82 * logHb - aHm + (44.9 - 6.55 * logHb) * Math.log10(distKm);
 };
 
+/**
+ * Core RSRP Calculation Engine with Physics
+ */
 export const calculateRSRP = (
   site: Site,
   sector: Sector,
@@ -74,9 +86,11 @@ export const calculateRSRP = (
   let angleDeg = (Math.atan2(y, x) * 180) / Math.PI;
   angleDeg = (angleDeg + 360) % 360;
 
+  // Horizontal Pattern Loss
   const horizAngleDiff = Math.abs(((angleDeg - sector.azimuth + 180) % 360) - 180);
   const horizLoss = Math.min(35, 12 * Math.pow(horizAngleDiff / (antenna.horizontalBeamwidth / 2), 2));
 
+  // Vertical Pattern Loss
   const heightDiff = (sector.heightM || site.towerHeightM) - 1.5;
   const verticalAngleToTarget = (Math.atan2(heightDiff, distM) * 180) / Math.PI;
   const effectiveTilt = (sector.mechanicalTilt || 0) + (sector.electricalTilt || 0);
@@ -86,6 +100,7 @@ export const calculateRSRP = (
   const gainPattern = Math.max(-35, -(horizLoss + vertLoss));
   const pathLoss = calculateHata(distKm, sector.frequencyMhz, sector.heightM || site.towerHeightM, 1.5);
   
+  // Terrain Diffraction (Knife-Edge)
   let extraLoss = 0;
   if (useTerrain) {
     const txElev = getSyntheticElevation(site.lat, site.lng) + (sector.heightM || site.towerHeightM);
@@ -124,26 +139,21 @@ export const getBestRSRPAtPoint = (sites: Site[], lat: number, lng: number, useT
 
 /**
  * Intelligent Azimuth Optimization
- * Analyzes neighbors and points sectors away from interference and toward coverage nulls.
  */
 export const optimizeSiteParameters = (site: Site, allSites: Site[], useTerrain: boolean): Sector[] => {
   const sectors = site.sectors.map(s => ({ ...s }));
   if (sectors.length === 0) return [];
 
-  // 1. Calculate the 'Steering' Azimuth
-  // Look for the direction with the worst existing coverage within 1km
   let worstAzimuth = 0;
   let minRsrp = Infinity;
   const searchSteps = 12;
-  const radius = 0.005; // ~500m search radius
+  const radius = 0.005;
 
   for (let i = 0; i < searchSteps; i++) {
     const ang = (i * 360) / searchSteps;
     const rad = (ang * Math.PI) / 180;
     const testLat = site.lat + radius * Math.cos(rad);
     const testLng = site.lng + radius * Math.sin(rad);
-    
-    // Ignore current site's own contribution to find the hole
     const rsrp = getBestRSRPAtPoint(allSites.filter(s => s.id !== site.id), testLat, testLng, useTerrain);
     if (rsrp < minRsrp) {
       minRsrp = rsrp;
@@ -151,24 +161,14 @@ export const optimizeSiteParameters = (site: Site, allSites: Site[], useTerrain:
     }
   }
 
-  // 2. Adjust for Neighbor Interference
-  // Find neighbors within 2km and calculate vectors to them
-  const neighbors = allSites
-    .filter(s => s.id !== site.id)
-    .filter(s => getQuickDistSq(s.lat, s.lng, site.lat, site.lng) < 0.0004); // ~2km
-
   const spacing = 360 / sectors.length;
   sectors.forEach((s, i) => {
-    // Primary sector points to the worst hole found
     s.azimuth = Math.round((worstAzimuth + i * spacing) % 360);
-
-    // Dynamic Tilt
     const traffic = getSyntheticHumanTraffic(site.lat, site.lng);
     let targetTilt = 4;
     if (traffic > 70) targetTilt = 8;
     else if (traffic > 40) targetTilt = 6;
     if (site.towerHeightM > 40) targetTilt += 2;
-    
     s.electricalTilt = targetTilt;
     s.mechanicalTilt = 0;
   });
@@ -178,21 +178,21 @@ export const optimizeSiteParameters = (site: Site, allSites: Site[], useTerrain:
 
 /**
  * AI Site Search with Mesh Continuity Logic
- * Prioritizes bridging service gaps rather than just identifying isolated holes.
+ * Generates AT LEAST 20 site suggestions to ensure optimal and continuous expansion.
  */
 export const findOptimalNextSites = (sites: Site[]): {lat: number, lng: number, reason: string, sectors: Sector[]}[] => {
   if (sites.length === 0) return [];
   const lats = sites.map(s => s.lat), lngs = sites.map(s => s.lng);
   
-  // Expand search area slightly more for the 20-site suggestion
-  const minLat = Math.min(...lats) - 0.08, maxLat = Math.max(...lats) + 0.08;
-  const minLng = Math.min(...lngs) - 0.08, maxLng = Math.max(...lngs) + 0.08;
+  // Dynamic project bounds
+  const minLat = Math.min(...lats) - 0.15, maxLat = Math.max(...lats) + 0.15;
+  const minLng = Math.min(...lngs) - 0.15, maxLng = Math.max(...lngs) + 0.15;
   
   const currentSites = [...sites];
   const suggestions: any[] = [];
-  const steps = 40; // Higher granularity for 20 suggestions
+  const steps = 50; 
 
-  // Loop 20 times to provide at least 20 site locations as requested
+  // Forced loop to 20 suggestions for comprehensive network growth
   for (let s = 0; s < 20; s++) {
     let bestCandidate: {lat: number, lng: number, score: number, traffic: number, meshContinuity: number} | null = null;
     
@@ -209,15 +209,22 @@ export const findOptimalNextSites = (sites: Site[]): {lat: number, lng: number, 
           if (d2 < minD2) minD2 = d2;
         });
 
-        // Continuity Factor: favors points that are at the edge of existing signal (-100 to -115 dBm)
-        // rather than points with NO signal at all. This bridges gaps for continuous service.
-        const meshContinuity = (rsrp > -118 && rsrp < -102) ? 60 : 0;
+        // "Mesh Continuity" Heuristic:
+        // Ideal sites bridge existing handover boundaries (nominally -105dBm to -115dBm).
+        // If RSRP is too strong, we are wasting resources. If too weak, we are creating an isolated island.
+        let meshContinuity = 0;
+        if (rsrp > -118 && rsrp < -100) {
+           meshContinuity = 120 - Math.abs(rsrp + 108); // Peaks at -108dBm
+        }
         
-        // Final score logic:
-        // Coverage Need (how bad is it?) + Continuity Need (is it bridgeable?) + Traffic demand
-        // minD2 check (0.00003 ~300m) ensures we don't stack towers too close
         const coverageDeficit = Math.max(0, -100 - rsrp);
-        const score = (coverageDeficit * 1.8 + meshContinuity + traffic * 0.3) * (minD2 < 0.00003 ? 0 : 1);
+        
+        // Multi-factor Scoring
+        // Weighting: Continuity (Handover) > Coverage Hole > Traffic Density
+        const distPenalty = minD2 < 0.00004 ? 0 : 1; // ~400m min separation
+        const isolationPenalty = rsrp < -130 ? 0.4 : 1.0; // Avoid "floating" sites far from the network mesh
+
+        const score = (coverageDeficit * 1.8 + meshContinuity * 2.2 + traffic * 0.5) * distPenalty * isolationPenalty;
 
         if (!bestCandidate || score > bestCandidate.score) {
           bestCandidate = { lat, lng, score, traffic, meshContinuity };
@@ -225,8 +232,8 @@ export const findOptimalNextSites = (sites: Site[]): {lat: number, lng: number, 
       }
     }
     
-    if (bestCandidate && bestCandidate.score > 15) {
-      const isContinuityFocus = bestCandidate.meshContinuity > 0;
+    if (bestCandidate) {
+      const isContinuityFocus = bestCandidate.meshContinuity > 60;
       
       const tempSite: Site = {
         id: `sug-${suggestions.length}`,
@@ -247,10 +254,11 @@ export const findOptimalNextSites = (sites: Site[]): {lat: number, lng: number, 
       suggestions.push({ 
         lat: bestCandidate.lat, 
         lng: bestCandidate.lng, 
-        reason: isContinuityFocus ? "Signal Continuity Bridge" : (bestCandidate.traffic > 65 ? "High-Traffic Capacity Node" : "Edge Coverage Extension"),
+        reason: isContinuityFocus ? "Service Handover Stitching" : "Demand-Driven Coverage Expansion",
         sectors: optimizedSectors
       });
       
+      // Update local context for the next iteration to ensure 20 distinct locations
       currentSites.push({ ...tempSite, sectors: optimizedSectors } as any);
     }
   }
@@ -272,5 +280,13 @@ export const getPhoneSignalProfile = (sites: Site[], lat: number, lng: number, u
   });
   allSignals.sort((a, b) => b.rsrp - a.rsrp);
   const serving = allSignals[0] || null;
-  return { lat, lng, rsrp: serving ? serving.rsrp : -150, sinr: serving ? Math.min(30, serving.rsrp + 105) : -20, servingCellId: serving ? serving.sectorId : null, servingSiteName: serving ? serving.siteName : null, neighbors: allSignals.slice(1, 4).map(s => ({ siteName: s.siteName, rsrp: s.rsrp })) };
+  return { 
+    lat, 
+    lng, 
+    rsrp: serving ? serving.rsrp : -150, 
+    sinr: serving ? Math.min(30, serving.rsrp + 105) : -20, 
+    servingCellId: serving ? serving.sectorId : null, 
+    servingSiteName: serving ? serving.siteName : null, 
+    neighbors: allSignals.slice(1, 4).map(s => ({ siteName: s.siteName, rsrp: s.rsrp })) 
+  };
 };

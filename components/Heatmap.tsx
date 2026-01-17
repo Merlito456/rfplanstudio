@@ -5,19 +5,24 @@ import L from 'leaflet';
 
 interface Props {
   points: CoveragePoint[];
+  step: number; // Geographical step in degrees
   map: L.Map | null;
 }
 
+/**
+ * Technical RF Signal Color Bins
+ * Discrete bands provide better technical "differentiation" for engineering.
+ */
 const getRFColor = (rsrp: number) => {
-  if (rsrp >= -75) return { r: 0, g: 180, b: 255 };  // Cyan
-  if (rsrp >= -85) return { r: 34, g: 197, b: 94 };  // Green
-  if (rsrp >= -95) return { r: 234, g: 179, b: 8 };  // Yellow
-  if (rsrp >= -105) return { r: 249, g: 115, b: 22 }; // Orange
-  if (rsrp >= -115) return { r: 220, g: 38, b: 38 };  // Red
-  return { r: 0, g: 0, b: 0 };
+  if (rsrp >= -75) return { r: 0, g: 180, b: 255 };  // Excellent (Cyan)
+  if (rsrp >= -85) return { r: 34, g: 197, b: 94 };  // Good (Green)
+  if (rsrp >= -95) return { r: 234, g: 179, b: 8 };  // Fair (Yellow)
+  if (rsrp >= -105) return { r: 249, g: 115, b: 22 }; // Poor (Orange)
+  if (rsrp >= -115) return { r: 220, g: 38, b: 38 };  // Critical (Red)
+  return null;
 };
 
-const Heatmap: React.FC<Props> = ({ points, map }) => {
+const Heatmap: React.FC<Props> = ({ points, step, map }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -35,52 +40,45 @@ const Heatmap: React.FC<Props> = ({ points, map }) => {
       }
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      const zoom = map.getZoom();
       const bounds = map.getBounds();
-
-      // Increased resolution for better sector visibility
-      const gridSize = zoom > 15 ? 10 : zoom > 13 ? 6 : 4;
-      const cols = Math.ceil(canvas.width / gridSize);
-      const rows = Math.ceil(canvas.height / gridSize);
       
-      const grid = new Float32Array(cols * rows).fill(-150);
+      // Calculate how many pixels the "step" represents on screen
+      // This ensures the "carpet" covers all gaps regardless of zoom
+      const p1 = map.latLngToContainerPoint(bounds.getNorthWest());
+      const p2 = map.latLngToContainerPoint([bounds.getNorth() - step, bounds.getWest() + step]);
+      
+      const pixelW = Math.abs(p2.x - p1.x) + 0.5; // Width of one "cell" in pixels
+      const pixelH = Math.abs(p2.y - p1.y) + 0.5; // Height of one "cell" in pixels
 
-      // Populate grid with strongest signal
-      for (let i = 0; i < points.length; i++) {
-        const p = points[i];
-        if (!bounds.contains([p.lat, p.lng])) continue;
+      // Use a buffer to draw efficiently
+      points.forEach(p => {
+        if (!bounds.contains([p.lat, p.lng])) return;
+
+        const color = getRFColor(p.rsrp);
+        if (!color) return;
 
         const pt = map.latLngToContainerPoint([p.lat, p.lng]);
-        const gx = Math.floor(pt.x / gridSize);
-        const gy = Math.floor(pt.y / gridSize);
+        
+        // Stronger signals should be more solid/opaque to stand out
+        const alpha = p.rsrp >= -85 ? 0.8 : p.rsrp >= -105 ? 0.6 : 0.4;
 
-        if (gx >= 0 && gx < cols && gy >= 0 && gy < rows) {
-          const idx = gy * cols + gx;
-          if (p.rsrp > grid[idx]) grid[idx] = p.rsrp;
-        }
-      }
-
-      // Draw grid cells with industry color ramp
-      for (let y = 0; y < rows; y++) {
-        for (let x = 0; x < cols; x++) {
-          const rsrp = grid[y * cols + x];
-          if (rsrp <= -115) continue;
-
-          const color = getRFColor(rsrp);
-          // Strong signals are nearly opaque, weak signals fade out
-          const alpha = Math.min(0.75, (rsrp + 115) / 45 + 0.15);
-          
-          ctx.fillStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${alpha})`;
-          // Draw slightly larger than grid to avoid "gaps" between pixels
-          ctx.fillRect(x * gridSize - 0.5, y * gridSize - 0.5, gridSize + 1, gridSize + 1);
-        }
-      }
+        ctx.fillStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${alpha})`;
+        
+        // Draw centered at point
+        // We slightly overlap (pixelW+1) to ensure no hairline cracks appear
+        ctx.fillRect(
+          Math.floor(pt.x - pixelW / 2), 
+          Math.floor(pt.y - pixelH / 2), 
+          Math.ceil(pixelW + 0.8), 
+          Math.ceil(pixelH + 0.8)
+        );
+      });
     };
 
     render();
     map.on('moveend zoomend resize', render);
     return () => { map.off('moveend zoomend resize', render); };
-  }, [points, map]);
+  }, [points, step, map]);
 
   return (
     <canvas 
@@ -88,7 +86,7 @@ const Heatmap: React.FC<Props> = ({ points, map }) => {
       className="absolute inset-0 pointer-events-none z-[400]"
       style={{ 
         mixBlendMode: 'multiply',
-        imageRendering: 'crisp-edges'
+        imageRendering: 'pixelated'
       }}
     />
   );

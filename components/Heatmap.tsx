@@ -20,62 +20,59 @@ const Heatmap: React.FC<Props> = ({ points, map }) => {
 
     const render = () => {
       const size = map.getSize();
-      canvas.width = size.x;
-      canvas.height = size.y;
+      if (canvas.width !== size.x || canvas.height !== size.y) {
+        canvas.width = size.x;
+        canvas.height = size.y;
+      }
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // PROFESSIONAL RSRP THRESHOLDS
-      const getColor = (rsrp: number) => {
-        // Excellent: >= -75
-        if (rsrp >= -75) return { r: 34, g: 197, b: 94, a: 0.5 }; 
-        // Good: -75 to -90
-        if (rsrp >= -90) return { r: 132, g: 204, b: 22, a: 0.45 };
-        // Fair: -90 to -105
-        if (rsrp >= -105) return { r: 234, g: 179, b: 8, a: 0.4 };
-        // Poor: -105 to -115
-        if (rsrp >= -115) return { r: 249, g: 115, b: 22, a: 0.35 };
-        // No Service: < -115
-        return { r: 220, g: 38, b: 38, a: 0.25 };
+      const zoom = map.getZoom();
+      const radius = Math.max(14, Math.pow(1.5, zoom - 11) * 12);
+      const bounds = map.getBounds();
+
+      // Batch rendering by color to reduce state changes
+      const bins: Record<string, { r: number, g: number, b: number, a: number, list: CoveragePoint[] }> = {
+        'ex': { r: 34, g: 197, b: 94, a: 0.5, list: [] },
+        'gd': { r: 132, g: 204, b: 22, a: 0.45, list: [] },
+        'fr': { r: 234, g: 179, b: 8, a: 0.4, list: [] },
+        'pr': { r: 249, g: 115, b: 22, a: 0.35, list: [] },
+        'ns': { r: 220, g: 38, b: 38, a: 0.25, list: [] }
       };
 
-      const zoom = map.getZoom();
-      const radius = Math.max(16, Math.pow(1.5, zoom - 11) * 14);
+      for (let i = 0; i < points.length; i++) {
+        const p = points[i];
+        // Spatial culling for viewport
+        if (!bounds.contains([p.lat, p.lng])) continue;
 
-      ctx.globalCompositeOperation = 'source-over';
+        if (p.rsrp >= -75) bins.ex.list.push(p);
+        else if (p.rsrp >= -90) bins.gd.list.push(p);
+        else if (p.rsrp >= -105) bins.fr.list.push(p);
+        else if (p.rsrp >= -115) bins.pr.list.push(p);
+        else bins.ns.list.push(p);
+      }
 
-      points.forEach(p => {
-        const screenPoint = map.latLngToContainerPoint([p.lat, p.lng]);
-        
-        if (screenPoint.x < -radius || screenPoint.x > canvas.width + radius || 
-            screenPoint.y < -radius || screenPoint.y > canvas.height + radius) return;
-
-        const { r, g, b, a } = getColor(p.rsrp);
-        
-        const grad = ctx.createRadialGradient(screenPoint.x, screenPoint.y, 0, screenPoint.x, screenPoint.y, radius);
-        grad.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${a})`);
-        grad.addColorStop(0.5, `rgba(${r}, ${g}, ${b}, ${a * 0.6})`);
-        grad.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
-
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        ctx.arc(screenPoint.x, screenPoint.y, radius, 0, Math.PI * 2);
-        ctx.fill();
+      Object.values(bins).forEach(bin => {
+        if (bin.list.length === 0) return;
+        ctx.fillStyle = `rgba(${bin.r}, ${bin.g}, ${bin.b}, ${bin.a})`;
+        bin.list.forEach(p => {
+          const pt = map.latLngToContainerPoint([p.lat, p.lng]);
+          ctx.beginPath();
+          ctx.arc(pt.x, pt.y, radius, 0, Math.PI * 2);
+          ctx.fill();
+        });
       });
     };
 
     render();
-    map.on('move zoom resize', render);
-    return () => { map.off('move zoom resize', render); };
+    map.on('moveend zoomend resize', render);
+    return () => { map.off('moveend zoomend resize', render); };
   }, [points, map]);
 
   return (
     <canvas 
       ref={canvasRef} 
       className="absolute inset-0 pointer-events-none z-[400]"
-      style={{ 
-        filter: 'blur(3px) brightness(1.1) contrast(1.1)', 
-        opacity: 0.7
-      }}
+      style={{ filter: 'blur(8px)', opacity: 0.65 }}
     />
   );
 };

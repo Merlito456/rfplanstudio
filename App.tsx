@@ -190,28 +190,29 @@ const App: React.FC = () => {
     }
 
     setIsSuggesting(true);
+    let result = null;
     try {
-      const result = await suggestNextSite(sites);
-      if (result?.suggestions && result.suggestions.length > 0) {
-        setSuggestedSites(result.suggestions);
-        if (mapInstance) {
-          mapInstance.flyTo([result.suggestions[0].lat, result.suggestions[0].lng], mapInstance.getZoom());
-        }
-      } else {
-        // Fallback to local deterministic "hole" logic if AI fails
-        const holes = findOptimalNextSites(sites);
-        setSuggestedSites(holes.map((h, i) => ({ 
-          lat: h.lat, 
-          lng: h.lng, 
-          reason: "Identified local coverage hole via local Hata-Okumura model.",
-          name: `Proposed Node ${i + 1}`
-        })));
-      }
+      result = await suggestNextSite(sites);
     } catch (err) {
-      console.error("Suggestion error:", err);
-    } finally {
-      setIsSuggesting(false);
+      console.warn("AI Suggestion Service unavailable (Check API Key). Falling back to Offline Engine.", err);
     }
+
+    if (result?.suggestions && result.suggestions.length > 0) {
+      setSuggestedSites(result.suggestions);
+      if (mapInstance) {
+        mapInstance.flyTo([result.suggestions[0].lat, result.suggestions[0].lng], mapInstance.getZoom());
+      }
+    } else {
+      // Offline Fallback to local deterministic "hole" logic
+      const holes = findOptimalNextSites(sites);
+      setSuggestedSites(holes.map((h, i) => ({ 
+        lat: h.lat, 
+        lng: h.lng, 
+        reason: "Offline Engine identified this coverage gap via local Hata-Okumura analysis.",
+        name: `Local Proposed Node ${i + 1}`
+      })));
+    }
+    setIsSuggesting(false);
   };
 
   const addComment = (lat: number, lng: number) => {
@@ -315,7 +316,7 @@ const App: React.FC = () => {
             <div className="flex items-center gap-1.5">
               {[
                 { id: 'terrain', icon: Landmark, action: () => setEnableTerrain(!enableTerrain), active: enableTerrain, label: 'Terrain Propagation' },
-                { id: 'suggest', icon: Target, action: handleAISuggestSite, active: isSuggesting || suggestedSites.length > 0, label: 'AI Site Expansion', loading: isSuggesting },
+                { id: 'suggest', icon: Target, action: handleAISuggestSite, active: isSuggesting || suggestedSites.length > 0, label: 'AI/Offline Suggestion', loading: isSuggesting },
                 { id: 'traffic', icon: Activity, action: () => setInteractionMode(interactionMode === 'traffic' ? 'none' : 'traffic'), active: interactionMode === 'traffic', label: 'Network Load Map' },
                 { id: 'comment', icon: MessageSquare, action: () => setInteractionMode(interactionMode === 'comment' ? 'none' : 'comment'), active: interactionMode === 'comment', label: 'Field Note' },
                 { id: 'probe', icon: Crosshair, action: () => setInteractionMode(interactionMode === 'probe' ? 'none' : 'probe'), active: interactionMode === 'probe', label: 'Signal Probe' }
@@ -385,7 +386,7 @@ const App: React.FC = () => {
                         <Sparkles size={14} />
                       </div>
                       {/* Reason Tooltip */}
-                      <div className="absolute -top-12 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900 text-white text-[9px] font-bold px-3 py-1.5 rounded-lg whitespace-nowrap z-[600] pointer-events-none">
+                      <div className="absolute -top-12 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900 text-white text-[9px] font-bold px-3 py-1.5 rounded-lg whitespace-nowrap z-[600] pointer-events-none shadow-xl border border-white/20">
                         {s.reason || "AI Logic Extension Site"}
                       </div>
                       <button className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-white text-emerald-600 border border-emerald-200 px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap shadow-lg">

@@ -23,15 +23,11 @@ import {
   TowerControl as TowerIcon, 
   Landmark,
   Target,
-  CheckCircle2,
-  Crosshair,
-  Database,
-  HardDrive,
   MessageSquare,
   History,
   Trash2,
   X,
-  Sparkles
+  Crosshair
 } from 'lucide-react';
 
 interface Suggestion extends Partial<Site> {
@@ -189,10 +185,10 @@ const App: React.FC = () => {
   const selectedSite = useMemo(() => sites.find(s => s.id === selectedSiteId), [sites, selectedSiteId]);
 
   return (
-    <div className="flex h-screen bg-white text-slate-900 font-sans overflow-hidden">
-      {/* Sidebar Navigation: Matches Screenshot exactly */}
-      <nav className="fixed bottom-0 left-0 w-full h-16 bg-white border-t md:relative md:w-16 md:h-full md:border-r md:border-t-0 md:flex flex-row md:flex-col items-center justify-around md:justify-start py-0 md:py-6 z-[1002] md:space-y-6">
-        <div className="hidden md:flex text-blue-600 font-black text-xl mb-6 items-center justify-center w-full h-10">RF</div>
+    <div className="flex h-screen w-screen bg-white text-slate-900 font-sans overflow-hidden">
+      {/* Sidebar Navigation: Strictly matches screenshot side vertical bar */}
+      <nav className="flex flex-col w-16 h-full bg-white border-r border-slate-100 items-center py-6 z-[1002] space-y-4 shrink-0">
+        <div className="text-blue-600 font-black text-xl mb-6 items-center justify-center w-full h-10 flex">RF</div>
         {[
           { id: 'map', icon: MapIcon },
           { id: 'library', icon: BookOpen },
@@ -202,104 +198,116 @@ const App: React.FC = () => {
           <button 
             key={tab.id}
             onClick={() => setActiveTab(tab.id as any)} 
-            className={`p-2.5 rounded-xl transition-all ${activeTab === tab.id ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-blue-500'}`}
+            className={`p-2.5 rounded-xl transition-all ${activeTab === tab.id ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-blue-500'}`}
           >
             <tab.icon size={22} />
           </button>
         ))}
       </nav>
 
-      <main className="flex-grow flex flex-col relative overflow-hidden">
-        {/* Header Section: Matches Screenshot Section-by-Section */}
-        <header className="flex flex-col lg:flex-row h-auto lg:h-16 items-center justify-between px-4 lg:px-6 bg-white border-b border-slate-100 z-[1000] py-2 lg:py-0 gap-3">
-          {/* Left Section: Name & Saved Status */}
-          <div className="flex items-center w-full lg:w-auto gap-4">
+      <main className="flex-grow flex flex-col relative h-full w-full overflow-hidden">
+        {/* Header: Matches screenshot exactly */}
+        <header className="flex h-16 items-center justify-between px-6 bg-white border-b border-slate-100 z-[1000] shrink-0">
+          {/* Left: Project Branding */}
+          <div className="flex items-center gap-6 min-w-[200px]">
             <div className="flex flex-col">
-              <input value={projectName} onChange={e => setProjectName(e.target.value)} className="text-base font-extrabold tracking-tight text-slate-800 bg-transparent border-none outline-none focus:ring-0 p-0" />
+              <input 
+                value={projectName} 
+                onChange={e => setProjectName(e.target.value)} 
+                className="text-base font-extrabold tracking-tight text-slate-800 bg-transparent border-none outline-none focus:ring-0 p-0" 
+              />
               <div className="flex items-center gap-1 text-[8px] font-black text-slate-400 uppercase tracking-widest mt-0.5">
                 <History size={10} /> SAVED {new Date(lastSaved).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
               </div>
             </div>
-            <div className="hidden lg:block h-8 w-[1px] bg-slate-100 mx-2" />
+            <div className="h-8 w-[1px] bg-slate-100" />
           </div>
 
-          {/* Center Section: Pill Search Bar */}
-          <div className="flex-grow flex justify-center w-full lg:w-auto px-4 max-w-xl">
+          {/* Center: Centered Pill Search Bar */}
+          <div className="flex-grow flex justify-center px-4 max-w-xl">
             <form onSubmit={handleSearch} className="relative w-full group">
-              <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search..." className="w-full bg-slate-50 border-none rounded-full pl-10 pr-4 py-2 text-[11px] font-bold text-slate-600 focus:bg-white focus:ring-2 focus:ring-blue-50 transition-all outline-none" />
+              <input 
+                type="text" 
+                value={searchQuery} 
+                onChange={(e) => setSearchQuery(e.target.value)} 
+                placeholder="Search..." 
+                className="w-full bg-slate-50 border-none rounded-full pl-10 pr-4 py-2 text-[11px] font-bold text-slate-600 focus:bg-white focus:ring-2 focus:ring-blue-50 transition-all outline-none shadow-sm" 
+              />
               <button type="submit" className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-blue-500">
                 <Search size={14} />
               </button>
             </form>
           </div>
 
-          {/* Right Section: Toggles & Action Buttons */}
-          <div className="flex items-center gap-2 lg:gap-3 w-full lg:w-auto justify-end overflow-x-auto no-scrollbar pb-1 lg:pb-0">
-            {/* Map/Sat Toggle Pill */}
-            <div className="flex bg-slate-50 p-1 rounded-full border border-slate-100 shrink-0">
+          {/* Right: Tools and Deployment */}
+          <div className="flex items-center gap-4 min-w-[300px] justify-end">
+            <div className="flex bg-slate-50 p-1 rounded-full border border-slate-100">
               <button onClick={() => setMapType('map')} className={`px-4 py-1 rounded-full text-[9px] font-black uppercase transition-all ${mapType === 'map' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}>Map</button>
               <button onClick={() => setMapType('satellite')} className={`px-4 py-1 rounded-full text-[9px] font-black uppercase transition-all ${mapType === 'satellite' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}>Sat</button>
             </div>
             
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2">
               {[
-                { id: 'terrain', icon: Landmark, action: () => setEnableTerrain(!enableTerrain), active: enableTerrain, title: "Terrain Loss" },
-                { id: 'suggest', icon: Target, action: handleAISuggestSite, active: isSuggesting, title: "AI Expansion" },
-                { id: 'comment', icon: MessageSquare, action: () => setInteractionMode(interactionMode === 'comment' ? 'none' : 'comment'), active: interactionMode === 'comment', title: "Comment" },
-                { id: 'probe', icon: Crosshair, action: () => setInteractionMode(interactionMode === 'probe' ? 'none' : 'probe'), active: interactionMode === 'probe', title: "Signal Probe" }
+                { id: 'terrain', icon: Landmark, action: () => setEnableTerrain(!enableTerrain), active: enableTerrain },
+                { id: 'suggest', icon: Target, action: handleAISuggestSite, active: isSuggesting },
+                { id: 'comment', icon: MessageSquare, action: () => setInteractionMode(interactionMode === 'comment' ? 'none' : 'comment'), active: interactionMode === 'comment' },
+                { id: 'probe', icon: Crosshair, action: () => setInteractionMode(interactionMode === 'probe' ? 'none' : 'probe'), active: interactionMode === 'probe' }
               ].map(tool => (
                 <button 
                   key={tool.id}
                   onClick={tool.action} 
-                  className={`p-2 rounded-full border transition-all shrink-0 ${tool.active ? 'bg-blue-50 border-blue-200 text-blue-600' : 'bg-white border-slate-200 text-slate-400 hover:border-slate-300'}`}
-                  title={tool.title}
+                  className={`w-9 h-9 rounded-full border flex items-center justify-center transition-all ${tool.active ? 'bg-blue-50 border-blue-200 text-blue-600' : 'bg-white border-slate-200 text-slate-400 hover:border-slate-300'}`}
                 >
                   <tool.icon size={16} />
                 </button>
               ))}
             </div>
 
-            <button onClick={() => setInteractionMode(interactionMode === 'placement' ? 'none' : 'placement')} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider shrink-0 transition-all shadow-md flex items-center gap-2 ${interactionMode === 'placement' ? 'bg-amber-500 text-white' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>
+            <button 
+              onClick={() => setInteractionMode(interactionMode === 'placement' ? 'none' : 'placement')} 
+              className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all shadow-lg flex items-center gap-2 ${interactionMode === 'placement' ? 'bg-amber-500 text-white' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+            >
               <PlusCircle size={14} /> {interactionMode === 'placement' ? 'CANCEL' : 'DEPLOY'}
             </button>
           </div>
         </header>
 
-        {/* Workspace Container */}
-        <div className="flex-grow relative bg-slate-50 overflow-hidden">
+        {/* Workspace: Stretched map container */}
+        <div className="flex-grow relative w-full h-full bg-slate-50 overflow-hidden">
           <div className={`absolute inset-0 z-0 ${activeTab === 'map' ? 'visible' : 'invisible pointer-events-none'}`}>
             <div ref={mapContainerRef} className="w-full h-full" />
             <Heatmap points={coveragePoints} map={mapInstance} />
             {interactionMode === 'probe' && probeLocation && mapInstance && <PhoneSimulator state={phoneState} map={mapInstance} mapVersion={mapVersion} />}
             
-            {/* Markers */}
+            {/* Markers Layer */}
             <div className="absolute inset-0 pointer-events-none z-[500]">
                {mapInstance && sites.map(site => {
                   const point = mapInstance.latLngToContainerPoint([site.lat, site.lng]);
                   const isSelected = selectedSiteId === site.id;
                   return (
                     <div key={site.id} onClick={(e) => { e.stopPropagation(); setSelectedSiteId(site.id); }} className="absolute pointer-events-auto -translate-x-1/2 -translate-y-1/2 cursor-pointer transition-all hover:scale-110" style={{ left: point.x, top: point.y }}>
-                       <div className={`w-8 h-8 rounded-xl border-2 flex items-center justify-center transition-all ${isSelected ? 'bg-blue-600 border-white shadow-lg' : 'bg-white border-slate-200 shadow-sm'}`}>
+                       <div className={`w-8 h-8 rounded-xl border-2 flex items-center justify-center transition-all ${isSelected ? 'bg-blue-600 border-white shadow-xl' : 'bg-white border-slate-300 shadow-sm'}`}>
                           <TowerIcon size={isSelected ? 16 : 14} className={isSelected ? 'text-white' : 'text-slate-500'} />
                        </div>
                     </div>
                   );
                })}
             </div>
+            {/* Legend positioned per screenshot overlay style */}
             <Legend showSimulator={interactionMode === 'probe' && !!probeLocation} />
           </div>
 
-          {/* Full Tab Views */}
+          {/* Other Views Overlay */}
           {activeTab !== 'map' && (
-            <div className="absolute inset-0 bg-white z-10 overflow-y-auto p-6 lg:p-12 animate-in fade-in duration-300">
+            <div className="absolute inset-0 bg-white z-[1001] overflow-y-auto p-10 animate-in fade-in duration-300">
               <div className="max-w-6xl mx-auto">
                 {activeTab === 'library' && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                     {ANTENNA_LIBRARY.map(ant => (
-                      <div key={ant.id} className="p-6 border border-slate-100 rounded-3xl hover:border-blue-500 transition-all bg-white shadow-sm">
+                      <div key={ant.id} className="p-6 border border-slate-100 rounded-3xl hover:border-blue-500 transition-all bg-white shadow-sm group">
                         <div className="flex justify-between items-start mb-4">
                           <div>
-                            <h3 className="text-lg font-black text-slate-800">{ant.model}</h3>
+                            <h3 className="text-lg font-black text-slate-800 group-hover:text-blue-600">{ant.model}</h3>
                             <p className="text-[10px] font-bold uppercase text-slate-400">{ant.vendor}</p>
                           </div>
                           <Radio size={18} className="text-slate-200" />
@@ -313,19 +321,38 @@ const App: React.FC = () => {
                   </div>
                 )}
                 {activeTab === 'ai' && (
-                  <div className="max-w-3xl mx-auto h-[calc(100vh-200px)] flex flex-col">
-                    <div className="flex-grow bg-slate-50 rounded-3xl p-6 overflow-y-auto mb-4 border border-slate-100 shadow-inner">
+                  <div className="max-w-3xl mx-auto h-full flex flex-col">
+                    <div className="flex-grow bg-slate-50 rounded-3xl p-8 overflow-y-auto mb-6 border border-slate-100 shadow-inner">
                       {chatHistory.map((m, i) => (
                         <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'} mb-4`}>
-                          <div className={`p-4 rounded-2xl max-w-[85%] text-sm ${m.role === 'user' ? 'bg-blue-600 text-white shadow-lg' : 'bg-white border border-slate-200 text-slate-800 shadow-sm'}`}>
+                          <div className={`p-5 rounded-2xl max-w-[80%] text-sm ${m.role === 'user' ? 'bg-blue-600 text-white shadow-lg' : 'bg-white border border-slate-200 text-slate-800 shadow-sm'}`}>
                             {m.text}
                           </div>
                         </div>
                       ))}
                     </div>
-                    <div className="flex gap-2 p-2 bg-white rounded-2xl border shadow-xl">
-                      <input type="text" value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendChatMessage()} className="flex-grow px-4 py-3 outline-none font-bold" placeholder="Ask RF Advisor..." />
-                      <button onClick={sendChatMessage} className="bg-blue-600 p-3 rounded-xl text-white hover:bg-blue-700"><Send size={20} /></button>
+                    <div className="flex gap-3 p-3 bg-white rounded-2xl border shadow-xl">
+                      <input type="text" value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendChatMessage()} className="flex-grow px-4 py-3 outline-none font-bold" placeholder="Query RF Engine..." />
+                      <button onClick={sendChatMessage} className="bg-blue-600 p-3 rounded-xl text-white hover:bg-blue-700 shadow-lg"><Send size={20} /></button>
+                    </div>
+                  </div>
+                )}
+                {activeTab === 'analytics' && (
+                  <div className="space-y-12">
+                    <h2 className="text-3xl font-black text-slate-800 tracking-tight">Project Metrics</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                       <div className="p-8 bg-white border border-slate-100 rounded-3xl shadow-sm">
+                          <p className="text-slate-400 font-bold uppercase text-[10px] tracking-widest mb-2">Total Sites</p>
+                          <p className="text-6xl font-black text-slate-800">{sites.length}</p>
+                       </div>
+                       <div className="p-8 bg-white border border-slate-100 rounded-3xl shadow-sm">
+                          <p className="text-slate-400 font-bold uppercase text-[10px] tracking-widest mb-2">Active Sectors</p>
+                          <p className="text-6xl font-black text-blue-600">{sites.reduce((a, b) => a + b.sectors.length, 0)}</p>
+                       </div>
+                       <div className="p-8 bg-white border border-slate-100 rounded-3xl shadow-sm">
+                          <p className="text-slate-400 font-bold uppercase text-[10px] tracking-widest mb-2">Comments</p>
+                          <p className="text-6xl font-black text-amber-500">{comments.length}</p>
+                       </div>
                     </div>
                   </div>
                 )}
@@ -335,18 +362,18 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {/* Responsive Sidebar/Sheet */}
-      <aside className={`fixed inset-y-0 right-0 md:relative md:inset-auto bg-white text-slate-900 flex flex-col shadow-2xl z-[2000] md:z-[1002] transition-transform duration-500 ${selectedSiteId ? 'translate-x-0' : 'translate-x-full md:absolute md:right-0'} w-full md:w-[420px]`}>
+      {/* Right Sidebar: Site Configuration */}
+      <aside className={`fixed inset-y-0 right-0 bg-white text-slate-900 flex flex-col shadow-2xl z-[2000] transition-transform duration-500 ${selectedSiteId ? 'translate-x-0' : 'translate-x-full'} w-full md:w-[420px]`}>
         <div className="flex justify-between items-center p-6 border-b bg-slate-50/30">
-          <h2 className="font-black uppercase tracking-widest text-[11px] text-slate-500">Site Configuration</h2>
-          <button onClick={() => setSelectedSiteId(null)} className="p-2 bg-white border rounded-xl text-slate-400 hover:text-slate-800"><X size={18} /></button>
+          <h2 className="font-black uppercase tracking-widest text-[11px] text-slate-500">Engineering Node</h2>
+          <button onClick={() => setSelectedSiteId(null)} className="p-2 bg-white border rounded-xl text-slate-400 hover:text-slate-800 shadow-sm"><X size={18} /></button>
         </div>
         <div className="p-6 h-full overflow-y-auto custom-scrollbar">
           {selectedSite && <SiteDetails site={selectedSite} allSites={sites} onUpdate={u => setSites(prev => prev.map(s => s.id === u.id ? u : s))} onDelete={() => { setSites(prev => prev.filter(s => s.id !== selectedSite.id)); setSelectedSiteId(null); }} />}
         </div>
         <div className="p-6 border-t bg-slate-50/50 flex gap-3">
-           <button onClick={() => setSelectedSiteId(null)} className="flex-grow py-3 bg-white border rounded-xl text-[10px] font-black uppercase text-slate-400 hover:bg-slate-100">Cancel</button>
-           <button onClick={() => { startSimulation(); setSelectedSiteId(null); }} className="flex-grow py-3 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase shadow-lg hover:bg-blue-700">Update Coverage</button>
+           <button onClick={() => setSelectedSiteId(null)} className="flex-grow py-3 bg-white border border-slate-200 rounded-xl text-[10px] font-black uppercase text-slate-400 hover:bg-slate-100 transition-colors">Close</button>
+           <button onClick={() => { startSimulation(); setSelectedSiteId(null); }} className="flex-grow py-3 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase shadow-lg hover:bg-blue-700 transition-all">Apply coverage</button>
         </div>
       </aside>
     </div>

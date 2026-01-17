@@ -9,8 +9,5 @@ if (!rootElement) {
 }
 
 const root = ReactDOM.createRoot(rootElement);
-root.render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);
+// Removed StrictMode as it causes double-initialization issues with Leaflet
+root.render(<App />);

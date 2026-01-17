@@ -80,42 +80,68 @@ const App: React.FC = () => {
   const loadProject = () => {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      const project: RFProject = JSON.parse(raw);
-      setSites(project.sites || []);
-      setComments(project.comments || []);
-      setProjectName(project.name || 'New RF Project');
-      setLastSaved(project.lastSaved || Date.now());
+      try {
+        const project: RFProject = JSON.parse(raw);
+        setSites(project.sites || []);
+        setComments(project.comments || []);
+        setProjectName(project.name || 'New RF Project');
+        setLastSaved(project.lastSaved || Date.now());
+      } catch (e) {
+        console.error("Failed to parse stored project", e);
+      }
     }
   };
 
   useEffect(() => { loadProject(); }, []);
   useEffect(() => { if (sites.length > 0 || comments.length > 0) saveProject(); }, [sites, comments, projectName]);
 
+  // STABLE MAP INITIALIZATION - ONLY RUN ONCE
   useEffect(() => {
-    if (!mapContainerRef.current) return;
-    const map = L.map(mapContainerRef.current, { zoomControl: false, maxZoom: 19 }).setView([40.7128, -74.006], 15);
+    if (!mapContainerRef.current || mapInstance) return;
+    
+    const map = L.map(mapContainerRef.current, { 
+      zoomControl: false, 
+      maxZoom: 19,
+      trackResize: true 
+    }).setView([40.7128, -74.006], 15);
+    
     L.control.zoom({ position: 'bottomright' }).addTo(map);
     setMapInstance(map);
+
     const onMove = () => {
       setMapVersion(v => v + 1);
-      if (interactionMode === 'probe' && probeLocation) {
-        setPhoneState(prev => ({
-          ...prev,
-          ...getPhoneSignalProfile(sites, probeLocation.lat, probeLocation.lng, enableTerrain)
-        }));
-      }
     };
+    
     map.on('move zoom', onMove);
-    return () => { map.off('move zoom', onMove); map.remove(); };
-  }, [sites, enableTerrain, interactionMode, probeLocation]);
+    return () => {
+      map.off('move zoom', onMove);
+      map.remove();
+    };
+  }, []);
 
+  // UPDATE PROBE WHEN MAP OR SITES CHANGE
+  useEffect(() => {
+    if (interactionMode === 'probe' && probeLocation) {
+      setPhoneState(prev => ({
+        ...prev,
+        ...getPhoneSignalProfile(sites, probeLocation.lat, probeLocation.lng, enableTerrain)
+      }));
+    }
+  }, [sites, enableTerrain, interactionMode, probeLocation, mapVersion]);
+
+  // HANDLE TILE LAYERS
   useEffect(() => {
     if (!mapInstance) return;
     if (baseLayerRef.current) mapInstance.removeLayer(baseLayerRef.current);
+    
     const topoUrl = 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}';
     const satUrl = 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
     const url = mapType === 'satellite' ? satUrl : topoUrl;
-    baseLayerRef.current = L.tileLayer(url, { maxZoom: 19, crossOrigin: true }).addTo(mapInstance);
+    
+    baseLayerRef.current = L.tileLayer(url, { 
+      maxZoom: 19, 
+      crossOrigin: true 
+    }).addTo(mapInstance);
     baseLayerRef.current.bringToBack();
   }, [mapType, mapInstance]);
 
@@ -137,16 +163,12 @@ const App: React.FC = () => {
       if (interactionMode === 'placement') deploySite(e.latlng.lat, e.latlng.lng);
       if (interactionMode === 'probe') {
         setProbeLocation({ lat: e.latlng.lat, lng: e.latlng.lng });
-        setPhoneState(prev => ({
-          ...prev,
-          ...getPhoneSignalProfile(sites, e.latlng.lat, e.latlng.lng, enableTerrain)
-        }));
       }
       if (interactionMode === 'comment') addComment(e.latlng.lat, e.latlng.lng);
     };
     mapInstance.on('click', onMapClick);
     return () => { mapInstance.off('click', onMapClick); };
-  }, [interactionMode, mapInstance, sites, enableTerrain]);
+  }, [interactionMode, mapInstance]);
 
   const deploySite = (lat: number, lng: number, config?: Partial<Site>) => {
     const newSite: Site = { 
@@ -220,7 +242,7 @@ const App: React.FC = () => {
       </nav>
 
       <main className="flex-grow flex flex-col relative h-full overflow-hidden">
-        {/* Header: Centered Search and Grouped Tools */}
+        {/* Header */}
         <header className="flex h-16 items-center justify-between px-6 bg-white border-b border-slate-100 z-[1000] shrink-0">
           {/* Left: Project Branding */}
           <div className="flex items-center gap-6 min-w-[220px]">
@@ -237,7 +259,7 @@ const App: React.FC = () => {
             <div className="h-8 w-[1px] bg-slate-100" />
           </div>
 
-          {/* Center: Centered Pill Search Bar */}
+          {/* Center: Pill Search Bar */}
           <div className="flex-grow flex justify-center px-4 max-w-xl">
             <form onSubmit={handleSearch} className="relative w-full group">
               <input 
@@ -296,7 +318,7 @@ const App: React.FC = () => {
           </div>
         </header>
 
-        {/* Workspace: Stretched map */}
+        {/* Workspace */}
         <div className="flex-grow relative w-full h-full bg-slate-50 overflow-hidden">
           <div className={`absolute inset-0 z-0 ${activeTab === 'map' ? 'visible' : 'invisible pointer-events-none'}`}>
             <div ref={mapContainerRef} className="w-full h-full" />
@@ -320,7 +342,7 @@ const App: React.FC = () => {
             <Legend showSimulator={interactionMode === 'probe' && !!probeLocation} />
           </div>
 
-          {/* Tab Views Overlay */}
+          {/* Tab Views */}
           {activeTab !== 'map' && (
             <div className="absolute inset-0 bg-white z-[1001] overflow-y-auto p-10 animate-in fade-in duration-300">
               <div className="max-w-6xl mx-auto">
@@ -366,7 +388,7 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {/* Right Sidebar: Site Detail Node */}
+      {/* Right Sidebar */}
       <aside className={`fixed inset-y-0 right-0 bg-white text-slate-900 flex flex-col shadow-2xl z-[2000] transition-transform duration-500 ${selectedSiteId ? 'translate-x-0' : 'translate-x-full'} w-full md:w-[420px]`}>
         <div className="flex justify-between items-center p-6 border-b bg-slate-50/30">
           <h2 className="font-black uppercase tracking-widest text-[11px] text-slate-500">Node Configuration</h2>

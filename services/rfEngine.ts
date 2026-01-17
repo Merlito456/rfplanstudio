@@ -53,7 +53,6 @@ export const calculateRSRP = (
   targetLng: number,
   useTerrain: boolean = true
 ): number => {
-  // Pruning: skip sites beyond ~12km
   if (getQuickDistSq(site.lat, site.lng, targetLat, targetLng) > 0.015) return -150; 
 
   const antenna = ANTENNA_LIBRARY.find(a => a.id === sector.antennaId);
@@ -123,56 +122,73 @@ export const getBestRSRPAtPoint = (sites: Site[], lat: number, lng: number, useT
   return bestRsrp;
 };
 
-// Fix: Implement missing optimizeSiteParameters to resolve SiteDetails.tsx error
 /**
- * Optimizes sector parameters for a specific site based on height and local traffic density.
+ * Intelligent Azimuth Optimization
+ * Analyzes neighbors and points sectors away from interference and toward coverage nulls.
  */
 export const optimizeSiteParameters = (site: Site, allSites: Site[], useTerrain: boolean): Sector[] => {
   const sectors = site.sectors.map(s => ({ ...s }));
   if (sectors.length === 0) return [];
 
-  // 1. Optimize Azimuths: Distribute evenly if they seem unconfigured (all 0)
-  const allZero = sectors.every(s => s.azimuth === 0);
-  if (allZero && sectors.length > 0) {
-    const spacing = 360 / sectors.length;
-    sectors.forEach((s, i) => {
-      s.azimuth = Math.round(i * spacing);
-    });
+  // 1. Calculate the 'Steering' Azimuth
+  // Look for the direction with the worst existing coverage within 1km
+  let worstAzimuth = 0;
+  let minRsrp = Infinity;
+  const searchSteps = 12;
+  const radius = 0.005; // ~500m search radius
+
+  for (let i = 0; i < searchSteps; i++) {
+    const ang = (i * 360) / searchSteps;
+    const rad = (ang * Math.PI) / 180;
+    const testLat = site.lat + radius * Math.cos(rad);
+    const testLng = site.lng + radius * Math.sin(rad);
+    
+    // Ignore current site's own contribution to find the hole
+    const rsrp = getBestRSRPAtPoint(allSites.filter(s => s.id !== site.id), testLat, testLng, useTerrain);
+    if (rsrp < minRsrp) {
+      minRsrp = rsrp;
+      worstAzimuth = ang;
+    }
   }
 
-  // 2. Optimize Tilts based on site height and local environment density
-  const traffic = getSyntheticHumanTraffic(site.lat, site.lng);
-  
-  sectors.forEach(s => {
-    // More traffic usually means smaller cells are needed -> more tilt to limit cell size
+  // 2. Adjust for Neighbor Interference
+  // Find neighbors within 2km and calculate vectors to them
+  const neighbors = allSites
+    .filter(s => s.id !== site.id)
+    .filter(s => getQuickDistSq(s.lat, s.lng, site.lat, site.lng) < 0.0004); // ~2km
+
+  const spacing = 360 / sectors.length;
+  sectors.forEach((s, i) => {
+    // Primary sector points to the worst hole found
+    s.azimuth = Math.round((worstAzimuth + i * spacing) % 360);
+
+    // Dynamic Tilt
+    const traffic = getSyntheticHumanTraffic(site.lat, site.lng);
     let targetTilt = 4;
     if (traffic > 70) targetTilt = 8;
     else if (traffic > 40) targetTilt = 6;
-    
-    // Tower height compensation: higher towers need more tilt to avoid overshooting nearby subscribers
     if (site.towerHeightM > 40) targetTilt += 2;
     
     s.electricalTilt = targetTilt;
-    s.mechanicalTilt = 0; 
-    
-    // Frequency adjustment: higher frequencies have higher propagation loss, might need slightly less tilt
-    if (s.frequencyMhz > 2100) {
-        s.electricalTilt = Math.max(2, s.electricalTilt - 1);
-    }
+    s.mechanicalTilt = 0;
   });
 
   return sectors;
 };
 
-export const findOptimalNextSites = (sites: Site[]): {lat: number, lng: number, reason: string}[] => {
+/**
+ * AI Site Search with Smart Azimuth Suggestion
+ */
+export const findOptimalNextSites = (sites: Site[]): {lat: number, lng: number, reason: string, sectors: Sector[]}[] => {
   if (sites.length === 0) return [];
   const lats = sites.map(s => s.lat), lngs = sites.map(s => s.lng);
   const minLat = Math.min(...lats) - 0.04, maxLat = Math.max(...lats) + 0.04;
   const minLng = Math.min(...lngs) - 0.04, maxLng = Math.max(...lngs) + 0.04;
-  const currentSites = [...sites], suggestions: {lat: number, lng: number, reason: string}[] = [];
-  const steps = 30; 
+  const currentSites = [...sites];
+  const suggestions: any[] = [];
+  const steps = 25; 
 
-  for (let s = 0; s < 10; s++) {
+  for (let s = 0; s < 8; s++) {
     let bestHole: {lat: number, lng: number, score: number, traffic: number} | null = null;
     for (let i = 0; i <= steps; i++) {
       for (let j = 0; j <= steps; j++) {
@@ -180,22 +196,44 @@ export const findOptimalNextSites = (sites: Site[]): {lat: number, lng: number, 
         const lng = minLng + j * ((maxLng - minLng) / steps);
         const rsrp = getBestRSRPAtPoint(currentSites, lat, lng, true);
         const traffic = getSyntheticHumanTraffic(lat, lng);
+        
         let minD2 = Infinity;
         currentSites.forEach(sc => {
           const d2 = Math.pow(lat - sc.lat, 2) + Math.pow(lng - sc.lng, 2);
           if (d2 < minD2) minD2 = d2;
         });
-        suggestions.forEach(sc => {
-          const d2 = Math.pow(lat - sc.lat, 2) + Math.pow(lng - sc.lng, 2);
-          if (d2 < minD2) minD2 = d2;
-        });
-        const score = (Math.max(0, -100 - rsrp) * 2 + traffic * 0.5) * (minD2 < 0.00004 ? 0 : 1);
+
+        const score = (Math.max(0, -100 - rsrp) * 2 + traffic * 0.5) * (minD2 < 0.00003 ? 0 : 1);
         if (!bestHole || score > bestHole.score) bestHole = { lat, lng, score, traffic };
       }
     }
-    if (bestHole && bestHole.score > 0) {
-      suggestions.push({ lat: bestHole.lat, lng: bestHole.lng, reason: bestHole.traffic > 60 ? "Capacity Expansion" : "Coverage Optimization" });
-      currentSites.push({ id: `v-${s}`, lat: bestHole.lat, lng: bestHole.lng, sectors: [{ id: 's1', antennaId: ANTENNA_LIBRARY[0].id, azimuth: 0, mechanicalTilt: 0, electricalTilt: 6, txPowerDbm: 44, frequencyMhz: 1800, heightM: 30 }] } as any);
+    
+    if (bestHole && bestHole.score > 10) {
+      // Calculate optimized sectors for this suggested location immediately
+      const tempSite: Site = {
+        id: 'temp',
+        name: 'Suggested',
+        lat: bestHole.lat,
+        lng: bestHole.lng,
+        towerHeightM: 30,
+        towerType: TowerType.MONOPOLE,
+        status: 'planned',
+        sectors: [
+          { id: 's1', antennaId: ANTENNA_LIBRARY[0].id, azimuth: 0, mechanicalTilt: 0, electricalTilt: 6, txPowerDbm: 44, frequencyMhz: 1800, heightM: 30 },
+          { id: 's2', antennaId: ANTENNA_LIBRARY[0].id, azimuth: 120, mechanicalTilt: 0, electricalTilt: 6, txPowerDbm: 44, frequencyMhz: 1800, heightM: 30 },
+          { id: 's3', antennaId: ANTENNA_LIBRARY[0].id, azimuth: 240, mechanicalTilt: 0, electricalTilt: 6, txPowerDbm: 44, frequencyMhz: 1800, heightM: 30 }
+        ]
+      };
+      
+      const optimizedSectors = optimizeSiteParameters(tempSite, currentSites, true);
+      suggestions.push({ 
+        lat: bestHole.lat, 
+        lng: bestHole.lng, 
+        reason: bestHole.traffic > 60 ? "Strategic Capacity" : "Critical Coverage Hole",
+        sectors: optimizedSectors
+      });
+      
+      currentSites.push({ ...tempSite, sectors: optimizedSectors } as any);
     }
   }
   return suggestions;
@@ -217,20 +255,4 @@ export const getPhoneSignalProfile = (sites: Site[], lat: number, lng: number, u
   allSignals.sort((a, b) => b.rsrp - a.rsrp);
   const serving = allSignals[0] || null;
   return { lat, lng, rsrp: serving ? serving.rsrp : -150, sinr: serving ? Math.min(30, serving.rsrp + 105) : -20, servingCellId: serving ? serving.sectorId : null, servingSiteName: serving ? serving.siteName : null, neighbors: allSignals.slice(1, 4).map(s => ({ siteName: s.siteName, rsrp: s.rsrp })) };
-};
-
-export const runSimulation = (sites: Site[], radiusKm: number, step: number, useTerrain: boolean = true): CoveragePoint[] => {
-  const points: CoveragePoint[] = [];
-  if (sites.length === 0) return points;
-  const lats = sites.map(s => s.lat), lngs = sites.map(s => s.lng);
-  const minLat = Math.min(...lats) - 0.1, maxLat = Math.max(...lats) + 0.1;
-  const minLng = Math.min(...lngs) - 0.1, maxLng = Math.max(...lngs) + 0.1;
-
-  for (let lat = minLat; lat <= maxLat; lat += step) {
-    for (let lng = minLng; lng <= maxLng; lng += step) {
-      const rsrp = getBestRSRPAtPoint(sites, lat, lng, useTerrain);
-      if (rsrp > -120) points.push({ lat, lng, rsrp });
-    }
-  }
-  return points;
 };

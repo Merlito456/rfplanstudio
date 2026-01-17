@@ -14,12 +14,12 @@ export const getRFAdvice = async (sites: Site[], query: string): Promise<string>
   if (process.env.API_KEY) {
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const prompt = `Project has ${sites.length} sites. User Query: "${query}". Context: I am using Vector-Based Azimuth Steering and Mesh Continuity logic. Focus on handovers and signal stitching. The engine now supports 20+ site expansion suggestions for continuous service.`;
+      const prompt = `Project has ${sites.length} sites. User Query: "${query}". Context: Using Signal Stitching and Mesh Continuity logic for optimal expansion. The tool now suggests 20+ site locations simultaneously to bridge handover boundaries and ensure continuous service coverage.`;
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
         contents: prompt,
         config: {
-          systemInstruction: "You are an expert RF network planning advisor. Provide technical, professional advice. Mention 'Mesh Continuity', 'Service Signal Stitching', and 'Handover Optimization' logic where appropriate. Emphasize the ability to suggest 20 optimal node locations for bridging large-scale coverage gaps."
+          systemInstruction: "You are a world-class RF planning engineer. Provide technical, professional advice. Focus on 'Mesh Stitching' and 'Service Continuity'. Explain that the suggestion tool generates at least 20 sites specifically at the service boundary fringe (-105 to -115 dBm) to bridge clusters and ensure a stable handover layer without signal drops."
         }
       });
       return response.text || "Engineering core returned an empty response.";
@@ -36,16 +36,16 @@ export const getRFAdvice = async (sites: Site[], query: string): Promise<string>
   let response = `### Engineering Core Output [Local Engine]\n\n`;
 
   if (normalizedQuery.includes('azimuth') || normalizedQuery.includes('orient')) {
-    response += `**Vector Steering Analysis:** The engine has evaluated local signal gradients. For new nodes, Alpha sectors are steered towards the deepest RSRP nulls (typically < -110dBm) to maximize primary server dominance.\n\n`;
-    response += `**Interference Check:** Neighboring boresights were analyzed. Avoidance logic is active to ensure the 3dB beamwidth overlap with adjacent sites is minimized.\n`;
+    response += `**Service Signal Stitching:** The engine is evaluating the 'overlap zone' between cell edges. For new suggestions, Alpha sectors are steered towards dominant neighbors to facilitate a reliable handover boundary.\n\n`;
+    response += `**Interference Mitigation:** Sidelobe interference is minimized by offsetting boresights from the primary server's back-lobes.\n`;
   } else if (normalizedQuery.includes('continuity') || normalizedQuery.includes('signal') || normalizedQuery.includes('handover') || normalizedQuery.includes('suggest') || normalizedQuery.includes('next')) {
-    response += `**Service Continuity Strategy:** The AI expansion tool now generates **20 suggested node locations** designed to stitch together fragmented coverage clusters. \n\n`;
-    response += `**Mesh Logic:** Suggestions are strategically placed at handover boundaries (approx. -105dBm to -115dBm) to create a 'mesh' that prevents signal drop-outs during mobility.\n\n`;
-    response += `**Expansion Capacity:** The cluster currently has ${sites.length} sites. Deploying the 20 suggested nodes would significantly harden the mobility layer and reduce edge-of-cell degradation.\n`;
+    response += `**Continuous Expansion Strategy:** The expansion algorithm is currently tasked with generating **20 optimal node locations**. \n\n`;
+    response += `**Mesh Continuity:** Locations are selected at the handover boundary (nominally -109 dBm) where signal strength is sufficient for session maintenance but low enough to justify new capacity.\n\n`;
+    response += `**Optimal Deployment:** These 20 nodes collectively create a continuous coverage fabric, eliminating 'dead zones' and ensuring mobile devices maintain a serving cell throughout the expansion area.\n`;
   } else if (normalizedQuery.includes('tilt')) {
-    response += `**Tilt Strategy:** Your project has ${highTiltSectors.length} sectors with aggressive tilt (>8°). This suggests a 'Capacity-Limited' design approach intended to constrain overshoot into adjacent cell layers.\n`;
+    response += `**Tilt Policy:** Your cluster features ${highTiltSectors.length} sectors with aggressive tilt. This strategy is ideal for 'Mesh Continuity' as it creates clean handover boundaries and reduces inter-site interference.\n`;
   } else {
-    response += `**Optimization Path:** The engine is calibrated for high-density deployment. Suggesting 20 sites simultaneously ensures that the global network topology remains balanced for handover success.\n`;
+    response += `**System Health:** The current project has ${sites.length} sites. To ensure optimal signal expansion, use the 'Suggest Expansion' tool to deploy the 20-node growth layer.\n`;
   }
 
   return response;

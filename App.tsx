@@ -55,7 +55,7 @@ const App: React.FC = () => {
   const [suggestedSites, setSuggestedSites] = useState<AISuggestion[]>([]);
   const [coveragePoints, setCoveragePoints] = useState<CoveragePoint[]>([]);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([
-    { role: 'model', text: "Local Engineering Core v4.2 initialized. How can I assist with your RF design?" }
+    { role: 'model', text: "Local Engineering Core v4.2 initialized. Using optimized spatial engine." }
   ]);
   const [chatInput, setChatInput] = useState('');
   const [mapType, setMapType] = useState<'map' | 'satellite'>('map');
@@ -174,23 +174,20 @@ const App: React.FC = () => {
     setSites(prev => [...prev, newSite]);
     setSelectedSiteId(newSite.id);
     setInteractionMode('none');
-    // If this was a suggestion, clear it
     setSuggestedSites(prev => prev.filter(s => Math.abs(s.lat - lat) > 0.0001));
   };
 
   const handleAISuggestSite = async () => {
     if (sites.length === 0) {
-      alert("Deploy at least one initial site before requesting expansion logic.");
+      alert("Deploy at least one initial site.");
       return;
     }
-    // Toggle suggestions visibility if already calculated
     if (suggestedSites.length > 0) {
       setSuggestedSites([]);
       return;
     }
 
     setIsSuggesting(true);
-    // 100% Local Smart Engine Logic
     setTimeout(() => {
       const holes = findOptimalNextSites(sites);
       setSuggestedSites(holes.map((h, i) => ({ 
@@ -206,7 +203,7 @@ const App: React.FC = () => {
       if (holes.length > 0 && mapInstance) {
         mapInstance.flyTo([holes[0].lat, holes[0].lng], mapInstance.getZoom());
       }
-    }, 600);
+    }, 400);
   };
 
   const addComment = (lat: number, lng: number) => {
@@ -216,13 +213,13 @@ const App: React.FC = () => {
   };
 
   const deleteComment = (id: string) => {
-    if (window.confirm("Delete this technical note?")) {
+    if (window.confirm("Delete note?")) {
       setComments(prev => prev.filter(c => c.id !== id));
     }
   };
 
   const clearAll = () => {
-    if (window.confirm("Clear all sites and comments from this project?")) {
+    if (window.confirm("Clear project?")) {
       setSites([]);
       setComments([]);
       setCoveragePoints([]);
@@ -236,10 +233,15 @@ const App: React.FC = () => {
   const startSimulation = () => {
     if (sites.length === 0) return;
     setIsSimulating(true);
+    
+    // Adaptive step based on site count to maintain 60fps
+    const adaptiveStep = sites.length > 20 ? 0.0006 : 0.0003;
+    
+    // Non-blocking execution simulation
     setTimeout(() => {
-      setCoveragePoints(runSimulation(sites, 8, 0.0003, enableTerrain));
+      setCoveragePoints(runSimulation(sites, 8, adaptiveStep, enableTerrain));
       setIsSimulating(false);
-    }, 800);
+    }, 50);
   };
 
   const sendChatMessage = async () => {
@@ -255,9 +257,8 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen w-screen bg-white text-slate-900 font-sans overflow-hidden">
-      {/* Sidebar Navigation */}
       <nav className="flex flex-col w-16 h-full bg-white border-r border-slate-100 items-center py-6 z-[1002] space-y-4 shrink-0">
-        <div className="text-blue-600 font-black text-xl mb-6 flex items-center justify-center w-full">RF</div>
+        <div className="text-blue-600 font-black text-xl mb-6">RF</div>
         {[
           { id: 'map', icon: MapIcon },
           { id: 'library', icon: BookOpen },
@@ -273,35 +274,28 @@ const App: React.FC = () => {
           </button>
         ))}
         <div className="flex-grow" />
-        <button 
-          onClick={clearAll}
-          className="w-10 h-10 flex items-center justify-center rounded-xl transition-all text-slate-400 hover:text-red-500 hover:bg-red-50"
-          title="Clear Project"
-        >
+        <button onClick={clearAll} className="w-10 h-10 flex items-center justify-center rounded-xl transition-all text-slate-400 hover:text-red-500 hover:bg-red-50">
           <RefreshCcw size={20} />
         </button>
       </nav>
 
       <main className="flex-grow flex flex-col relative h-full overflow-hidden">
-        {/* Header */}
         <header className="flex h-16 items-center justify-between px-6 bg-white border-b border-slate-100 z-[1000] shrink-0">
-          <div className="flex items-center gap-6 min-w-[200px]">
-            <div className="flex flex-col">
-              <input value={projectName} onChange={e => setProjectName(e.target.value)} className="text-sm font-extrabold text-slate-800 bg-transparent border-none outline-none focus:ring-0 p-0" />
-              <div className="flex items-center gap-1 text-[8px] font-black text-slate-400 uppercase tracking-widest mt-0.5">
-                <History size={10} /> SAVED {new Date(lastSaved).toLocaleTimeString()}
-              </div>
+          <div className="flex flex-col min-w-[200px]">
+            <input value={projectName} onChange={e => setProjectName(e.target.value)} className="text-sm font-extrabold text-slate-800 bg-transparent border-none outline-none p-0" />
+            <div className="flex items-center gap-1 text-[8px] font-black text-slate-400 uppercase tracking-widest mt-0.5">
+              <History size={10} /> {new Date(lastSaved).toLocaleTimeString()}
             </div>
           </div>
 
           <div className="flex-grow flex justify-center px-4 max-w-xl">
-            <form onSubmit={handleSearch} className="relative w-full group">
-              <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search location..." className="w-full bg-slate-50 border-none rounded-full pl-10 pr-4 py-2 text-[11px] font-bold text-slate-600 focus:bg-white focus:ring-2 focus:ring-blue-50 transition-all outline-none" />
-              <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-blue-500" />
+            <form onSubmit={handleSearch} className="relative w-full">
+              <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search location..." className="w-full bg-slate-50 border-none rounded-full pl-10 pr-4 py-2 text-[11px] font-bold text-slate-600 focus:bg-white focus:ring-2 focus:ring-blue-50 outline-none" />
+              <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-300" />
             </form>
           </div>
 
-          <div className="flex items-center gap-4 min-w-[360px] justify-end">
+          <div className="flex items-center gap-4 justify-end">
             <div className="flex bg-slate-100 p-1 rounded-full border border-slate-200">
               <button onClick={() => setMapType('map')} className={`px-4 py-1 rounded-full text-[9px] font-black uppercase transition-all ${mapType === 'map' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}>Map</button>
               <button onClick={() => setMapType('satellite')} className={`px-4 py-1 rounded-full text-[9px] font-black uppercase transition-all ${mapType === 'satellite' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}>Sat</button>
@@ -309,50 +303,40 @@ const App: React.FC = () => {
             
             <div className="flex items-center gap-1.5">
               {[
-                { id: 'terrain', icon: Landmark, action: () => setEnableTerrain(!enableTerrain), active: enableTerrain, label: 'Terrain Propagation' },
-                { id: 'suggest', icon: Target, action: handleAISuggestSite, active: isSuggesting || suggestedSites.length > 0, label: 'Smart Expansion Engine', loading: isSuggesting },
-                { id: 'traffic', icon: Activity, action: () => setInteractionMode(interactionMode === 'traffic' ? 'none' : 'traffic'), active: interactionMode === 'traffic', label: 'Network Load Map' },
+                { id: 'terrain', icon: Landmark, action: () => setEnableTerrain(!enableTerrain), active: enableTerrain, label: 'Terrain' },
+                { id: 'suggest', icon: Target, action: handleAISuggestSite, active: isSuggesting || suggestedSites.length > 0, label: 'Optimization Engine', loading: isSuggesting },
+                { id: 'traffic', icon: Activity, action: () => setInteractionMode(interactionMode === 'traffic' ? 'none' : 'traffic'), active: interactionMode === 'traffic', label: 'Load Map' },
                 { id: 'comment', icon: MessageSquare, action: () => setInteractionMode(interactionMode === 'comment' ? 'none' : 'comment'), active: interactionMode === 'comment', label: 'Field Note' },
-                { id: 'probe', icon: Crosshair, action: () => setInteractionMode(interactionMode === 'probe' ? 'none' : 'probe'), active: interactionMode === 'probe', label: 'Signal Probe' }
+                { id: 'probe', icon: Crosshair, action: () => setInteractionMode(interactionMode === 'probe' ? 'none' : 'probe'), active: interactionMode === 'probe', label: 'Probe' }
               ].map(tool => (
                 <button 
                   key={tool.id}
                   onClick={tool.action} 
                   title={tool.label}
-                  className={`w-9 h-9 rounded-full border flex items-center justify-center transition-all relative ${tool.active ? 'bg-blue-50 border-blue-200 text-blue-600 shadow-sm' : 'bg-white border-slate-200 text-slate-400 hover:border-slate-300'}`}
+                  className={`w-9 h-9 rounded-full border flex items-center justify-center transition-all relative ${tool.active ? 'bg-blue-50 border-blue-200 text-blue-600' : 'bg-white border-slate-200 text-slate-400 hover:border-slate-300'}`}
                 >
                   {tool.loading ? <Loader2 size={16} className="animate-spin" /> : <tool.icon size={16} />}
-                  {tool.id === 'suggest' && suggestedSites.length > 0 && !isSuggesting && <div className="absolute top-0 right-0 w-2 h-2 bg-emerald-500 rounded-full border border-white"></div>}
+                  {tool.id === 'suggest' && suggestedSites.length > 0 && !isSuggesting && <div className="absolute top-0 right-0 w-2 h-2 bg-emerald-500 rounded-full border border-white" />}
                 </button>
               ))}
             </div>
 
-            <div className="flex items-center gap-2">
-              <button onClick={startSimulation} disabled={isSimulating || sites.length === 0} className="px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all bg-blue-600 text-white hover:bg-blue-700 shadow-md flex items-center gap-2 disabled:opacity-50">
-                {isSimulating ? <Loader2 size={14} className="animate-spin" /> : <Maximize2 size={14} />} 
-                SCAN
-              </button>
-              <button 
-                onClick={() => setInteractionMode(interactionMode === 'placement' ? 'none' : 'placement')} 
-                className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all shadow-md flex items-center gap-2 ${interactionMode === 'placement' ? 'bg-amber-500 text-white' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
-              >
-                <PlusCircle size={14} /> {interactionMode === 'placement' ? 'CANCEL' : 'DEPLOY'}
-              </button>
-            </div>
+            <button onClick={startSimulation} disabled={isSimulating || sites.length === 0} className="px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider bg-blue-600 text-white hover:bg-blue-700 shadow-md flex items-center gap-2 disabled:opacity-50">
+              {isSimulating ? <Loader2 size={14} className="animate-spin" /> : <Maximize2 size={14} />} SCAN
+            </button>
+            <button onClick={() => setInteractionMode(interactionMode === 'placement' ? 'none' : 'placement')} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider shadow-md flex items-center gap-2 ${interactionMode === 'placement' ? 'bg-amber-500 text-white' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>
+              <PlusCircle size={14} /> {interactionMode === 'placement' ? 'CANCEL' : 'DEPLOY'}
+            </button>
           </div>
         </header>
 
-        {/* Full-Screen Workspace */}
         <div className="flex-grow relative w-full h-full bg-slate-50 overflow-hidden">
           <div className={`absolute inset-0 z-0 ${activeTab === 'map' ? 'visible' : 'invisible pointer-events-none'}`}>
             <div ref={mapContainerRef} className="w-full h-full" />
-            
-            {/* Layers */}
             <Heatmap points={coveragePoints} map={mapInstance} />
             {interactionMode === 'traffic' && <TrafficMap map={mapInstance} />}
             {interactionMode === 'probe' && probeLocation && mapInstance && <PhoneSimulator state={phoneState} map={mapInstance} mapVersion={mapVersion} />}
             
-            {/* Sites, Comments & AI Suggestion Markers Overlay */}
             <div className="absolute inset-0 pointer-events-none z-[500]">
                {mapInstance && sites.map(site => {
                   const point = mapInstance.latLngToContainerPoint([site.lat, site.lng]);
@@ -365,47 +349,16 @@ const App: React.FC = () => {
                     </div>
                   );
                })}
-
-               {/* AI Suggested Sites */}
                {mapInstance && suggestedSites.map((s, idx) => {
                   const point = mapInstance.latLngToContainerPoint([s.lat, s.lng]);
                   return (
-                    <div 
-                      key={`suggest-${idx}`} 
-                      onClick={(e) => { e.stopPropagation(); deploySite(s.lat, s.lng, s); }} 
-                      className="absolute pointer-events-auto -translate-x-1/2 -translate-y-1/2 group cursor-pointer" 
-                      style={{ left: point.x, top: point.y }}
-                    >
+                    <div key={`sug-${idx}`} onClick={(e) => { e.stopPropagation(); deploySite(s.lat, s.lng, s); }} className="absolute pointer-events-auto -translate-x-1/2 -translate-y-1/2 group cursor-pointer" style={{ left: point.x, top: point.y }}>
                       <div className="w-8 h-8 rounded-full bg-emerald-500 border-2 border-white shadow-xl flex items-center justify-center text-white animate-pulse">
                         <Sparkles size={14} />
                       </div>
-                      {/* Reason Tooltip */}
-                      <div className="absolute -top-12 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900 text-white text-[9px] font-bold px-3 py-1.5 rounded-lg whitespace-nowrap z-[600] pointer-events-none shadow-xl border border-white/20">
-                        {s.reason || "Optimal network expansion node."}
+                      <div className="absolute -top-12 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900 text-white text-[9px] font-bold px-3 py-1.5 rounded-lg whitespace-nowrap shadow-xl border border-white/20">
+                        {s.reason || "Recommended placement."}
                       </div>
-                      <button className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-white text-emerald-600 border border-emerald-200 px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap shadow-lg">
-                        Deploy Suggestion
-                      </button>
-                    </div>
-                  );
-               })}
-               
-               {mapInstance && comments.map(comment => {
-                  const point = mapInstance.latLngToContainerPoint([comment.lat, comment.lng]);
-                  return (
-                    <div key={comment.id} className="absolute pointer-events-auto -translate-x-1/2 -translate-y-1/2 group" style={{ left: point.x, top: point.y }}>
-                       <div className="relative">
-                          <div className="w-6 h-6 rounded-full bg-amber-500 border-2 border-white shadow-md flex items-center justify-center text-white">
-                             <MessageSquare size={12} />
-                          </div>
-                          {/* Deletion Overlay on Click/Hover */}
-                          <div className="absolute -top-10 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-white border border-slate-100 rounded-lg shadow-xl px-3 py-1.5 flex items-center gap-2 whitespace-nowrap pointer-events-auto">
-                             <span className="text-[10px] font-bold text-slate-700 max-w-[120px] truncate">{comment.text}</span>
-                             <button onClick={() => deleteComment(comment.id)} className="text-red-500 hover:text-red-600 p-0.5 rounded">
-                                <Trash2 size={12} />
-                             </button>
-                          </div>
-                       </div>
                     </div>
                   );
                })}
@@ -413,7 +366,6 @@ const App: React.FC = () => {
             <Legend showSimulator={interactionMode === 'probe' && !!probeLocation} />
           </div>
 
-          {/* Overlays */}
           {activeTab !== 'map' && (
             <div className="absolute inset-0 bg-white z-[1001] overflow-y-auto p-12 animate-in fade-in duration-300">
               <div className="max-w-6xl mx-auto">
@@ -421,12 +373,10 @@ const App: React.FC = () => {
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                     {ANTENNA_LIBRARY.map(ant => (
                       <div key={ant.id} className="p-6 border border-slate-100 rounded-3xl hover:border-blue-500 transition-all bg-white shadow-sm group">
-                        <div className="flex justify-between items-start mb-4">
-                          <div><h3 className="text-lg font-black text-slate-800 group-hover:text-blue-600">{ant.model}</h3><p className="text-[10px] font-bold uppercase text-slate-400">{ant.vendor}</p></div>
-                          <Radio size={18} className="text-slate-200" />
-                        </div>
+                        <h3 className="text-lg font-black text-slate-800 group-hover:text-blue-600">{ant.model}</h3>
+                        <p className="text-[10px] font-bold uppercase text-slate-400 mb-4">{ant.vendor}</p>
                         <div className="flex justify-between pt-4 border-t border-slate-50 text-[10px] font-black uppercase text-slate-500">
-                          <span>Gain: {ant.gainDbi}dBi</span><span>Ports: {ant.ports}</span>
+                          <span>{ant.gainDbi}dBi</span><span>{ant.ports} Ports</span>
                         </div>
                       </div>
                     ))}
@@ -453,7 +403,6 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {/* Right Sidebar */}
       <aside className={`fixed inset-y-0 right-0 bg-white text-slate-900 flex flex-col shadow-2xl z-[2000] transition-transform duration-500 ${selectedSiteId ? 'translate-x-0' : 'translate-x-full'} w-full md:w-[420px]`}>
         <div className="flex justify-between items-center p-6 border-b bg-slate-50/30">
           <h2 className="font-black uppercase tracking-widest text-[11px] text-slate-500">Node Configuration</h2>

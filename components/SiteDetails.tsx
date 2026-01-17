@@ -52,7 +52,7 @@ const SiteDetails: React.FC<Props> = ({ site, allSites, onUpdate, onDelete }) =>
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center mb-2">
-        <h3 className="text-2xl font-black text-slate-900 tracking-tight">Site Config</h3>
+        <h3 className="text-xl md:text-2xl font-black text-slate-900 tracking-tight">Site Config</h3>
         <button 
           onClick={onDelete} 
           className="text-slate-400 hover:text-red-600 p-2 transition-colors rounded-lg hover:bg-red-50"
@@ -62,9 +62,9 @@ const SiteDetails: React.FC<Props> = ({ site, allSites, onUpdate, onDelete }) =>
         </button>
       </div>
 
-      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 space-y-6 shadow-sm">
-        <div className="grid grid-cols-2 gap-6">
-          <div className="col-span-2">
+      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 md:p-6 space-y-6 shadow-sm">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+          <div className="md:col-span-2">
             <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Project Name</label>
             <input 
               type="text" 
@@ -98,8 +98,8 @@ const SiteDetails: React.FC<Props> = ({ site, allSites, onUpdate, onDelete }) =>
         </div>
       </div>
 
-      <div className="mt-8">
-        <div className="flex justify-between items-center mb-6">
+      <div className="mt-8 pb-10">
+        <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-6">
           <h4 className="font-black text-slate-900 uppercase tracking-tight flex items-center gap-2">
             <Layers size={20} className="text-blue-600" />
             Sectors
@@ -108,26 +108,26 @@ const SiteDetails: React.FC<Props> = ({ site, allSites, onUpdate, onDelete }) =>
             <button 
               onClick={handleAIOptimize}
               disabled={isOptimizing || site.sectors.length === 0}
-              className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-emerald-500 transition shadow-lg active:scale-95 disabled:opacity-50"
+              className="flex-grow md:flex-none flex items-center justify-center gap-2 bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-[10px] font-bold uppercase hover:bg-emerald-500 transition shadow-lg disabled:opacity-50"
             >
-              {isOptimizing ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-              AI Optimize
+              {isOptimizing ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+              AI Opt
             </button>
             <button 
               onClick={addSector}
-              className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-slate-800 transition shadow-lg active:scale-95"
+              className="flex-grow md:flex-none flex items-center justify-center gap-2 bg-slate-900 text-white px-4 py-2.5 rounded-xl text-[10px] font-bold uppercase hover:bg-slate-800 transition shadow-lg"
             >
-              <Plus size={16} /> Add
+              <Plus size={14} /> Add
             </button>
           </div>
         </div>
 
         <div className="space-y-6">
           {site.sectors.map((sector, idx) => (
-            <div key={sector.id} className="border-2 border-slate-100 rounded-2xl p-6 bg-white shadow-sm relative hover:border-blue-100 transition-colors group">
+            <div key={sector.id} className="border-2 border-slate-100 rounded-2xl p-4 md:p-6 bg-white shadow-sm relative hover:border-blue-100 transition-colors group">
               <button 
                 onClick={() => removeSector(sector.id)}
-                className="absolute top-4 right-4 text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                className="absolute top-4 right-4 text-slate-300 hover:text-red-500 transition-colors"
               >
                 <Trash2 size={18} />
               </button>
@@ -136,7 +136,7 @@ const SiteDetails: React.FC<Props> = ({ site, allSites, onUpdate, onDelete }) =>
                 <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-black text-xs">
                   {idx + 1}
                 </div>
-                <div className="text-xs font-black text-slate-900 uppercase tracking-widest">RF Configuration</div>
+                <div className="text-[10px] font-black text-slate-900 uppercase tracking-widest">RF Configuration</div>
               </div>
               
               <div className="grid grid-cols-2 gap-x-4 gap-y-4">
@@ -145,7 +145,7 @@ const SiteDetails: React.FC<Props> = ({ site, allSites, onUpdate, onDelete }) =>
                   <select 
                     value={sector.antennaId}
                     onChange={(e) => updateSector(sector.id, { antennaId: e.target.value })}
-                    className="w-full border-2 border-slate-100 rounded-lg px-3 py-2 text-xs font-bold bg-slate-50 text-slate-800 focus:border-blue-500 outline-none transition-all"
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold bg-slate-50 text-slate-800 focus:border-blue-500 outline-none"
                   >
                     {ANTENNA_LIBRARY.map(a => (
                       <option key={a.id} value={a.id}>{a.vendor} - {a.model}</option>
@@ -153,75 +153,25 @@ const SiteDetails: React.FC<Props> = ({ site, allSites, onUpdate, onDelete }) =>
                   </select>
                 </div>
                 
-                <div>
+                <div className="col-span-1">
                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Azimuth (°)</label>
-                  <input 
-                    type="number" 
-                    value={sector.azimuth}
-                    onChange={(e) => updateSector(sector.id, { azimuth: Number(e.target.value) })}
-                    className="w-full border-2 border-slate-100 rounded-lg px-3 py-2 text-xs font-bold text-slate-800 focus:border-blue-500 outline-none"
-                  />
+                  <input type="number" value={sector.azimuth} onChange={(e) => updateSector(sector.id, { azimuth: Number(e.target.value) })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-800 outline-none" />
                 </div>
-
-                <div>
+                <div className="col-span-1">
                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Mount Ht (m)</label>
-                  <input 
-                    type="number" 
-                    value={sector.heightM}
-                    onChange={(e) => updateSector(sector.id, { heightM: Number(e.target.value) })}
-                    className="w-full border-2 border-slate-100 rounded-lg px-3 py-2 text-xs font-bold text-slate-800 focus:border-blue-500 outline-none"
-                  />
+                  <input type="number" value={sector.heightM} onChange={(e) => updateSector(sector.id, { heightM: Number(e.target.value) })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-800 outline-none" />
                 </div>
-
-                <div>
-                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Mech. Tilt (°)</label>
-                  <input 
-                    type="number" 
-                    value={sector.mechanicalTilt}
-                    onChange={(e) => updateSector(sector.id, { mechanicalTilt: Number(e.target.value) })}
-                    className="w-full border-2 border-slate-100 rounded-lg px-3 py-2 text-xs font-bold text-slate-800 focus:border-blue-500 outline-none"
-                  />
+                <div className="col-span-1">
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Mech Tilt (°)</label>
+                  <input type="number" value={sector.mechanicalTilt} onChange={(e) => updateSector(sector.id, { mechanicalTilt: Number(e.target.value) })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-800 outline-none" />
                 </div>
-
-                <div>
-                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Elec. Tilt (°)</label>
-                  <input 
-                    type="number" 
-                    value={sector.electricalTilt}
-                    onChange={(e) => updateSector(sector.id, { electricalTilt: Number(e.target.value) })}
-                    className="w-full border-2 border-slate-100 rounded-lg px-3 py-2 text-xs font-bold text-slate-800 focus:border-blue-500 outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Tx Power (dBm)</label>
-                  <input 
-                    type="number" 
-                    value={sector.txPowerDbm}
-                    onChange={(e) => updateSector(sector.id, { txPowerDbm: Number(e.target.value) })}
-                    className="w-full border-2 border-slate-100 rounded-lg px-3 py-2 text-xs font-bold text-emerald-600 focus:border-emerald-500 outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Freq (MHz)</label>
-                  <input 
-                    type="number" 
-                    value={sector.frequencyMhz}
-                    onChange={(e) => updateSector(sector.id, { frequencyMhz: Number(e.target.value) })}
-                    className="w-full border-2 border-slate-100 rounded-lg px-3 py-2 text-xs font-bold text-blue-600 focus:border-blue-500 outline-none"
-                  />
+                <div className="col-span-1">
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Elec Tilt (°)</label>
+                  <input type="number" value={sector.electricalTilt} onChange={(e) => updateSector(sector.id, { electricalTilt: Number(e.target.value) })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-800 outline-none" />
                 </div>
               </div>
             </div>
           ))}
-          {site.sectors.length === 0 && (
-            <div className="p-12 border-2 border-dashed border-slate-200 rounded-3xl text-center">
-              <Zap className="mx-auto text-slate-200 mb-4" size={48} />
-              <p className="text-slate-400 text-sm font-bold uppercase tracking-widest">Empty Array</p>
-              <button onClick={addSector} className="mt-4 text-blue-600 font-black text-xs uppercase hover:underline">Provision Sector</button>
-            </div>
-          )}
         </div>
       </div>
     </div>

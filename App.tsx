@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Site, CoveragePoint, ChatMessage, TowerType, PhoneDeviceState, Sector, ProjectComment, RFProject } from './types';
 import { ANTENNA_LIBRARY, DEFAULT_SITE } from './constants';
-import { runSimulation, getBestRSRPAtPoint, getPhoneSignalProfile } from './services/rfEngine';
+import { runSimulation, getBestRSRPAtPoint, getPhoneSignalProfile, findOptimalNextSites } from './services/rfEngine';
 import { getRFAdvice, suggestNextSite } from './services/geminiService';
 import SiteDetails from './components/SiteDetails';
 import Heatmap from './components/Heatmap';
@@ -28,10 +28,19 @@ import {
   History,
   X,
   Crosshair,
-  Zap
+  Zap,
+  Trash2,
+  RefreshCcw,
+  Sparkles
 } from 'lucide-react';
 
 const STORAGE_KEY = 'rf_plan_studio_current_project_v3';
+
+interface AISuggestion extends Partial<Site> {
+  lat: number;
+  lng: number;
+  reason: string;
+}
 
 const App: React.FC = () => {
   const [sites, setSites] = useState<Site[]>([]);
@@ -41,6 +50,8 @@ const App: React.FC = () => {
   const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'map' | 'library' | 'ai' | 'analytics'>('map');
   const [isSimulating, setIsSimulating] = useState(false);
+  const [isSuggesting, setIsSuggesting] = useState(false);
+  const [suggestedSites, setSuggestedSites] = useState<AISuggestion[]>([]);
   const [coveragePoints, setCoveragePoints] = useState<CoveragePoint[]>([]);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([
     { role: 'model', text: "Local Engineering Core v4.2 initialized. How can I assist with your RF design?" }
@@ -149,17 +160,75 @@ const App: React.FC = () => {
     return () => { mapInstance.off('click', onMapClick); };
   }, [interactionMode, mapInstance]);
 
-  const deploySite = (lat: number, lng: number) => {
-    const newSite: Site = { ...DEFAULT_SITE, id: crypto.randomUUID(), name: `Site ${sites.length + 1}`, lat, lng, sectors: [] };
+  const deploySite = (lat: number, lng: number, config?: Partial<Site>) => {
+    const newSite: Site = { 
+      ...DEFAULT_SITE, 
+      id: crypto.randomUUID(), 
+      name: config?.name || `Site ${sites.length + 1}`, 
+      lat, lng, 
+      towerHeightM: config?.towerHeightM || DEFAULT_SITE.towerHeightM,
+      towerType: config?.towerType as TowerType || DEFAULT_SITE.towerType,
+      sectors: config?.sectors?.map(s => ({...s, id: crypto.randomUUID()})) || [] 
+    };
     setSites(prev => [...prev, newSite]);
     setSelectedSiteId(newSite.id);
     setInteractionMode('none');
+    // If this was a suggestion, clear it
+    setSuggestedSites(prev => prev.filter(s => Math.abs(s.lat - lat) > 0.0001));
+  };
+
+  const handleAISuggestSite = async () => {
+    if (sites.length === 0) {
+      alert("Deploy at least one initial site before requesting AI expansion.");
+      return;
+    }
+    setIsSuggesting(true);
+    try {
+      const result = await suggestNextSite(sites);
+      if (result?.suggestions && result.suggestions.length > 0) {
+        setSuggestedSites(result.suggestions);
+        if (mapInstance) {
+          mapInstance.flyTo([result.suggestions[0].lat, result.suggestions[0].lng], mapInstance.getZoom());
+        }
+      } else {
+        // Fallback to local deterministic "hole" logic if AI fails
+        const holes = findOptimalNextSites(sites);
+        setSuggestedSites(holes.map((h, i) => ({ 
+          lat: h.lat, 
+          lng: h.lng, 
+          reason: "Identified local coverage hole via local Hata-Okumura model.",
+          name: `Proposed Node ${i + 1}`
+        })));
+      }
+    } catch (err) {
+      console.error("Suggestion error:", err);
+    } finally {
+      setIsSuggesting(false);
+    }
   };
 
   const addComment = (lat: number, lng: number) => {
     const text = prompt("Note:");
     if (text) setComments(prev => [...prev, { id: crypto.randomUUID(), lat, lng, text, author: 'Planner', timestamp: Date.now(), category: 'general' }]);
     setInteractionMode('none');
+  };
+
+  const deleteComment = (id: string) => {
+    if (window.confirm("Delete this technical note?")) {
+      setComments(prev => prev.filter(c => c.id !== id));
+    }
+  };
+
+  const clearAll = () => {
+    if (window.confirm("Clear all sites and comments from this project?")) {
+      setSites([]);
+      setComments([]);
+      setCoveragePoints([]);
+      setSuggestedSites([]);
+      setSelectedSiteId(null);
+      setProbeLocation(null);
+      localStorage.removeItem(STORAGE_KEY);
+    }
   };
 
   const startSimulation = () => {
@@ -201,6 +270,14 @@ const App: React.FC = () => {
             <tab.icon size={20} />
           </button>
         ))}
+        <div className="flex-grow" />
+        <button 
+          onClick={clearAll}
+          className="w-10 h-10 flex items-center justify-center rounded-xl transition-all text-slate-400 hover:text-red-500 hover:bg-red-50"
+          title="Clear Project"
+        >
+          <RefreshCcw size={20} />
+        </button>
       </nav>
 
       <main className="flex-grow flex flex-col relative h-full overflow-hidden">
@@ -231,7 +308,7 @@ const App: React.FC = () => {
             <div className="flex items-center gap-1.5">
               {[
                 { id: 'terrain', icon: Landmark, action: () => setEnableTerrain(!enableTerrain), active: enableTerrain },
-                { id: 'suggest', icon: Target, action: () => setInteractionMode(interactionMode === 'traffic' ? 'none' : 'traffic'), active: interactionMode === 'traffic' },
+                { id: 'traffic', icon: Target, action: () => setInteractionMode(interactionMode === 'traffic' ? 'none' : 'traffic'), active: interactionMode === 'traffic' },
                 { id: 'comment', icon: MessageSquare, action: () => setInteractionMode(interactionMode === 'comment' ? 'none' : 'comment'), active: interactionMode === 'comment' },
                 { id: 'probe', icon: Crosshair, action: () => setInteractionMode(interactionMode === 'probe' ? 'none' : 'probe'), active: interactionMode === 'probe' }
               ].map(tool => (
@@ -246,6 +323,10 @@ const App: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-2">
+              <button onClick={handleAISuggestSite} disabled={isSuggesting || sites.length === 0} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-2 ${isSuggesting ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-white border border-slate-200 text-emerald-600 hover:bg-emerald-50'}`}>
+                {isSuggesting ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                SUGGEST
+              </button>
               <button onClick={startSimulation} disabled={isSimulating || sites.length === 0} className="px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all bg-blue-600 text-white hover:bg-blue-700 shadow-md flex items-center gap-2 disabled:opacity-50">
                 {isSimulating ? <Loader2 size={14} className="animate-spin" /> : <Maximize2 size={14} />} 
                 SCAN
@@ -270,7 +351,7 @@ const App: React.FC = () => {
             {interactionMode === 'traffic' && <TrafficMap map={mapInstance} />}
             {interactionMode === 'probe' && probeLocation && mapInstance && <PhoneSimulator state={phoneState} map={mapInstance} mapVersion={mapVersion} />}
             
-            {/* Markers */}
+            {/* Sites, Comments & AI Suggestion Markers Overlay */}
             <div className="absolute inset-0 pointer-events-none z-[500]">
                {mapInstance && sites.map(site => {
                   const point = mapInstance.latLngToContainerPoint([site.lat, site.lng]);
@@ -279,6 +360,50 @@ const App: React.FC = () => {
                     <div key={site.id} onClick={(e) => { e.stopPropagation(); setSelectedSiteId(site.id); }} className="absolute pointer-events-auto -translate-x-1/2 -translate-y-1/2 cursor-pointer transition-all hover:scale-110" style={{ left: point.x, top: point.y }}>
                        <div className={`w-8 h-8 rounded-xl border-2 flex items-center justify-center transition-all ${isSelected ? 'bg-blue-600 border-white shadow-xl' : 'bg-white border-slate-300 shadow-sm'}`}>
                           <TowerIcon size={isSelected ? 16 : 14} className={isSelected ? 'text-white' : 'text-slate-500'} />
+                       </div>
+                    </div>
+                  );
+               })}
+
+               {/* AI Suggested Sites */}
+               {mapInstance && suggestedSites.map((s, idx) => {
+                  const point = mapInstance.latLngToContainerPoint([s.lat, s.lng]);
+                  return (
+                    <div 
+                      key={`suggest-${idx}`} 
+                      onClick={(e) => { e.stopPropagation(); deploySite(s.lat, s.lng, s); }} 
+                      className="absolute pointer-events-auto -translate-x-1/2 -translate-y-1/2 group cursor-pointer" 
+                      style={{ left: point.x, top: point.y }}
+                    >
+                      <div className="w-8 h-8 rounded-full bg-emerald-500 border-2 border-white shadow-xl flex items-center justify-center text-white animate-pulse">
+                        <Sparkles size={14} />
+                      </div>
+                      {/* Reason Tooltip */}
+                      <div className="absolute -top-12 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900 text-white text-[9px] font-bold px-3 py-1.5 rounded-lg whitespace-nowrap z-[600] pointer-events-none">
+                        {s.reason || "AI Logic Extension Site"}
+                      </div>
+                      <button className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-white text-emerald-600 border border-emerald-200 px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap shadow-lg">
+                        Deploy Suggestion
+                      </button>
+                    </div>
+                  );
+               })}
+               
+               {mapInstance && comments.map(comment => {
+                  const point = mapInstance.latLngToContainerPoint([comment.lat, comment.lng]);
+                  return (
+                    <div key={comment.id} className="absolute pointer-events-auto -translate-x-1/2 -translate-y-1/2 group" style={{ left: point.x, top: point.y }}>
+                       <div className="relative">
+                          <div className="w-6 h-6 rounded-full bg-amber-500 border-2 border-white shadow-md flex items-center justify-center text-white">
+                             <MessageSquare size={12} />
+                          </div>
+                          {/* Deletion Overlay on Click/Hover */}
+                          <div className="absolute -top-10 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-white border border-slate-100 rounded-lg shadow-xl px-3 py-1.5 flex items-center gap-2 whitespace-nowrap pointer-events-auto">
+                             <span className="text-[10px] font-bold text-slate-700 max-w-[120px] truncate">{comment.text}</span>
+                             <button onClick={() => deleteComment(comment.id)} className="text-red-500 hover:text-red-600 p-0.5 rounded">
+                                <Trash2 size={12} />
+                             </button>
+                          </div>
                        </div>
                     </div>
                   );

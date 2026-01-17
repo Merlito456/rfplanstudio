@@ -41,7 +41,7 @@ import {
 
 const STORAGE_KEY = 'rf_plan_studio_current_project_v3';
 
-// ENHANCED WEB WORKER SOURCE - FULL RF ENGINE WITH PHYSICS
+// SYNCED WEB WORKER - ADVANCED RF ENGINE
 const workerCode = `
   const LIGHT_SPEED = 299792458;
   const EARTH_RADIUS_KM = 6371;
@@ -53,8 +53,8 @@ const workerCode = `
   const getUrbanClutterLoss = (lat, lng) => {
     const bx = Math.abs(Math.sin(lat * 7241)); 
     const by = Math.abs(Math.sin(lng * 7122));
-    if (bx < 0.3 && by < 0.3) return 30; // Dense
-    if (bx < 0.7 && by < 0.7) return 15; // Urban
+    if (bx < 0.3 && by < 0.3) return 30; 
+    if (bx < 0.7 && by < 0.7) return 15;
     return 0;
   };
 
@@ -111,7 +111,6 @@ const workerCode = `
             const ant = antennaLibrary.find(al => al.id === sector.antennaId);
             if (!ant) continue;
 
-            // Pattern Loss
             const horizAngleDiff = Math.abs(((angleDeg - sector.azimuth + 180) % 360) - 180);
             const horizLoss = Math.min(35, 12 * Math.pow(horizAngleDiff / (ant.horizontalBeamwidth / 2), 2));
             const heightDiff = (sector.heightM || site.towerHeightM) - 1.5;
@@ -121,10 +120,8 @@ const workerCode = `
             const vertLoss = Math.min(25, 12 * Math.pow(vertAngleDiff / (ant.verticalBeamwidth / 2), 2));
             const gainPattern = Math.max(-35, -(horizLoss + vertLoss));
 
-            // Basic Path Loss
             const pathLoss = calculateHata(distKm, sector.frequencyMhz, sector.heightM || site.towerHeightM, 1.5);
             
-            // Terrain Loss (Knife-Edge Diffraction)
             let extraLoss = 0;
             if (config.useTerrain) {
               const txElev = getSyntheticElevation(site.lat, site.lng) + (sector.heightM || site.towerHeightM);
@@ -132,7 +129,6 @@ const workerCode = `
               const samples = 4;
               let maxV = -Infinity;
               const wavelength = LIGHT_SPEED / ((sector.frequencyMhz || 1800) * 1e6);
-              
               for (let i = 1; i <= samples; i++) {
                 const s = i / (samples + 1);
                 const tLat = site.lat + (lat - site.lat) * s;
@@ -176,15 +172,11 @@ const App: React.FC = () => {
   const [mapType, setMapType] = useState<'map' | 'satellite'>('map');
   const [interactionMode, setInteractionMode] = useState<'none' | 'placement' | 'probe' | 'comment' | 'traffic'>('none');
   const [probeLocation, setProbeLocation] = useState<{lat: number, lng: number} | null>(null);
-  
-  // Search States
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  
   const [enableTerrain, setEnableTerrain] = useState(true);
   const [mapVersion, setMapVersion] = useState(0);
-
   const [phoneState, setPhoneState] = useState<PhoneDeviceState>({
     lat: 40.7128, lng: -74.006, rsrp: -140, sinr: -20, servingCellId: null, servingSiteName: null, neighbors: [], handoverCount: 0, lastHandoverTime: null
   });
@@ -205,7 +197,6 @@ const App: React.FC = () => {
     return () => simulationWorker.current?.terminate();
   }, []);
 
-  // Persistence (Auto-save)
   useEffect(() => {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
@@ -259,12 +250,9 @@ const App: React.FC = () => {
       if (interactionMode === 'probe') setProbeLocation({ lat: e.latlng.lat, lng: e.latlng.lng });
     };
     mapInstance.on('click', onMapClick);
-    return () => {
-      mapInstance.off('click', onMapClick);
-    };
+    return () => { mapInstance.off('click', onMapClick); };
   }, [interactionMode, mapInstance, sites]);
 
-  // Project Management Functions
   const exportProject = () => {
     const project: RFProject = { name: projectName, sites, comments, lastSaved: Date.now(), version: '3.0' };
     const blob = new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' });
@@ -286,9 +274,7 @@ const App: React.FC = () => {
         setSites(project.sites || []);
         setComments(project.comments || []);
         setProjectName(project.name || 'Imported Project');
-        if (project.sites?.[0] && mapInstance) {
-          mapInstance.flyTo([project.sites[0].lat, project.sites[0].lng], 14);
-        }
+        if (project.sites?.[0] && mapInstance) mapInstance.flyTo([project.sites[0].lat, project.sites[0].lng], 14);
       } catch (err) { alert("Invalid project file format."); }
     };
     reader.readAsText(file);
@@ -306,39 +292,20 @@ const App: React.FC = () => {
   const addComment = (lat: number, lng: number) => {
     const text = prompt("Enter technical note:");
     if (!text) return;
-    const newComment: ProjectComment = {
-      id: crypto.randomUUID(),
-      lat,
-      lng,
-      text,
-      author: 'Planner',
-      timestamp: Date.now(),
-      category: 'general'
-    };
+    const newComment: ProjectComment = { id: crypto.randomUUID(), lat, lng, text, author: 'Planner', timestamp: Date.now(), category: 'general' };
     setComments(prev => [...prev, newComment]);
     setInteractionMode('none');
-  };
-
-  const deleteComment = (id: string) => {
-    if (confirm("Delete this field note?")) {
-      setComments(prev => prev.filter(c => c.id !== id));
-    }
   };
 
   const handleSearch = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!searchQuery.trim()) return;
-    
     setIsSearching(true);
     try {
       const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=5`);
       const data = await res.json();
       setSearchResults(data);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsSearching(false);
-    }
+    } catch (err) { console.error(err); } finally { setIsSearching(false); }
   };
 
   const goToLocation = (lat: string, lon: string) => {
@@ -349,26 +316,23 @@ const App: React.FC = () => {
   };
 
   const handleAISuggestSite = () => {
-    if (sites.length === 0) { alert("Deploy at least one initial site."); return; }
+    if (sites.length === 0) { alert("Deploy at least one initial hub node."); return; }
     if (suggestedSites.length > 0) { setSuggestedSites([]); return; }
     setIsSuggesting(true);
+    // Expansion logic now suggests 20 optimal node locations
     setTimeout(() => {
-      const holes = findOptimalNextSites(sites);
-      setSuggestedSites(holes.map((h, i) => ({ ...h, name: `Node Expansion ${i + 1}` })));
+      const expansionNodes = findOptimalNextSites(sites);
+      setSuggestedSites(expansionNodes.map((h, i) => ({ ...h, name: `Growth Node ${i + 1}` })));
       setIsSuggesting(false);
-      if (holes.length > 0 && mapInstance) mapInstance.flyTo([holes[0].lat, holes[0].lng], mapInstance.getZoom());
-    }, 500);
+      if (expansionNodes.length > 0 && mapInstance) mapInstance.flyTo([expansionNodes[0].lat, expansionNodes[0].lng], mapInstance.getZoom());
+    }, 800);
   };
 
   const startSimulation = () => {
     if (sites.length === 0) return;
     setIsSimulating(true);
     const step = sites.length > 20 ? 0.0004 : 0.00025; 
-    simulationWorker.current?.postMessage({ 
-      sites, 
-      antennaLibrary: ANTENNA_LIBRARY, 
-      config: { step, useTerrain: enableTerrain } 
-    });
+    simulationWorker.current?.postMessage({ sites, antennaLibrary: ANTENNA_LIBRARY, config: { step, useTerrain: enableTerrain } });
   };
 
   const sendChatMessage = async () => {
@@ -388,30 +352,13 @@ const App: React.FC = () => {
 
       <nav className="flex flex-col w-16 h-full bg-white border-r border-slate-100 items-center py-6 z-[1002] space-y-4 shrink-0">
         <div className="text-blue-600 font-black text-xl mb-6">RF</div>
-        {[
-          { id: 'map', icon: MapIcon },
-          { id: 'library', icon: BookOpen },
-          { id: 'analytics', icon: BarChart2 },
-          { id: 'ai', icon: Cpu }
-        ].map(tab => (
-          <button 
-            key={tab.id} 
-            onClick={() => setActiveTab(tab.id as any)} 
-            className={`w-10 h-10 flex items-center justify-center rounded-xl transition-all ${activeTab === tab.id ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-blue-500 hover:bg-slate-50'}`}
-          >
-            <tab.icon size={20} />
-          </button>
+        {[{ id: 'map', icon: MapIcon }, { id: 'library', icon: BookOpen }, { id: 'analytics', icon: BarChart2 }, { id: 'ai', icon: Cpu }].map(tab => (
+          <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`w-10 h-10 flex items-center justify-center rounded-xl transition-all ${activeTab === tab.id ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-blue-500 hover:bg-slate-50'}`}><tab.icon size={20} /></button>
         ))}
         <div className="flex-grow" />
-        <button onClick={exportProject} className="w-10 h-10 flex items-center justify-center rounded-xl text-slate-400 hover:text-blue-600" title="Export Project"><Download size={20} /></button>
-        <button onClick={() => fileInputRef.current?.click()} className="w-10 h-10 flex items-center justify-center rounded-xl text-slate-400 hover:text-blue-600" title="Import Project"><Upload size={20} /></button>
-        <button 
-          onClick={() => { if(confirm("Clear current project?")) { setSites([]); setComments([]); setCoverageData({ points: [], step: 0.0003 }); localStorage.removeItem(STORAGE_KEY); } }} 
-          className="w-10 h-10 flex items-center justify-center rounded-xl text-slate-400 hover:text-red-500"
-          title="Reset"
-        >
-          <RefreshCcw size={20} />
-        </button>
+        <button onClick={exportProject} className="w-10 h-10 flex items-center justify-center rounded-xl text-slate-400 hover:text-blue-600"><Download size={20} /></button>
+        <button onClick={() => fileInputRef.current?.click()} className="w-10 h-10 flex items-center justify-center rounded-xl text-slate-400 hover:text-blue-600"><Upload size={20} /></button>
+        <button onClick={() => { if(confirm("Clear current project?")) { setSites([]); setComments([]); setCoverageData({ points: [], step: 0.0003 }); localStorage.removeItem(STORAGE_KEY); } }} className="w-10 h-10 flex items-center justify-center rounded-xl text-slate-400 hover:text-red-500"><RefreshCcw size={20} /></button>
       </nav>
 
       <main className="flex-grow flex flex-col relative h-full overflow-hidden">
@@ -423,32 +370,13 @@ const App: React.FC = () => {
 
           <div className="flex-grow flex justify-center px-4 max-w-xl relative">
             <form onSubmit={handleSearch} className="relative w-full">
-              <input 
-                type="text" 
-                value={searchQuery} 
-                onChange={e => setSearchQuery(e.target.value)} 
-                placeholder="Search places..." 
-                className="w-full bg-slate-50 border-none rounded-full pl-10 pr-4 py-2 text-[11px] font-bold text-slate-600 focus:bg-white focus:ring-2 focus:ring-blue-50 outline-none transition-all" 
-              />
-              <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-300">
-                {isSearching ? <Loader2 size={14} className="animate-spin text-blue-500" /> : <Search size={14} />}
-              </div>
+              <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search places..." className="w-full bg-slate-50 border-none rounded-full pl-10 pr-4 py-2 text-[11px] font-bold text-slate-600 focus:bg-white focus:ring-2 focus:ring-blue-50 outline-none transition-all" />
+              <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-300">{isSearching ? <Loader2 size={14} className="animate-spin text-blue-500" /> : <Search size={14} />}</div>
             </form>
-
             {searchResults.length > 0 && (
               <div className="absolute top-12 left-4 right-4 bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden z-[2000] py-2">
                 {searchResults.map((res, i) => (
-                  <button 
-                    key={i} 
-                    onClick={() => goToLocation(res.lat, res.lon)} 
-                    className="w-full px-4 py-3 flex items-start gap-3 hover:bg-slate-50 text-left transition-colors"
-                  >
-                    <MapPin size={16} className="text-blue-500 mt-0.5 shrink-0" />
-                    <div>
-                      <div className="text-[11px] font-bold text-slate-800 line-clamp-1">{res.display_name}</div>
-                      <div className="text-[9px] font-medium text-slate-400 uppercase">{res.type} · {res.class}</div>
-                    </div>
-                  </button>
+                  <button key={i} onClick={() => goToLocation(res.lat, res.lon)} className="w-full px-4 py-3 flex items-start gap-3 hover:bg-slate-50 text-left transition-colors"><MapPin size={16} className="text-blue-500 mt-0.5 shrink-0" /><div><div className="text-[11px] font-bold text-slate-800 line-clamp-1">{res.display_name}</div><div className="text-[9px] font-medium text-slate-400 uppercase">{res.type} · {res.class}</div></div></button>
                 ))}
               </div>
             )}
@@ -462,7 +390,7 @@ const App: React.FC = () => {
             <div className="flex items-center gap-1.5">
               {[
                 { id: 'terrain', icon: Landmark, action: () => setEnableTerrain(!enableTerrain), active: enableTerrain, label: 'Terrain' },
-                { id: 'suggest', icon: Target, action: handleAISuggestSite, active: isSuggesting || suggestedSites.length > 0, label: 'Optimal Expansion', loading: isSuggesting },
+                { id: 'suggest', icon: Target, action: handleAISuggestSite, active: isSuggesting || suggestedSites.length > 0, label: 'Continuous Expansion', loading: isSuggesting },
                 { id: 'comment', icon: MessageSquare, action: () => setInteractionMode(interactionMode === 'comment' ? 'none' : 'comment'), active: interactionMode === 'comment', label: 'Field Note' },
                 { id: 'probe', icon: Crosshair, action: () => setInteractionMode(interactionMode === 'probe' ? 'none' : 'probe'), active: interactionMode === 'probe', label: 'Signal Probe' }
               ].map(tool => (
@@ -472,15 +400,8 @@ const App: React.FC = () => {
                 </button>
               ))}
             </div>
-            <button onClick={startSimulation} disabled={isSimulating || sites.length === 0} className="px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider bg-blue-600 text-white hover:bg-blue-700 shadow-md flex items-center gap-2 disabled:opacity-50">
-              {isSimulating ? <Loader2 size={14} className="animate-spin" /> : <Maximize2 size={14} />} SCAN
-            </button>
-            <button 
-              onClick={() => setInteractionMode(interactionMode === 'placement' ? 'none' : 'placement')} 
-              className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider shadow-md ${interactionMode === 'placement' ? 'bg-amber-500 text-white' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
-            >
-              DEPLOY
-            </button>
+            <button onClick={startSimulation} disabled={isSimulating || sites.length === 0} className="px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider bg-blue-600 text-white hover:bg-blue-700 shadow-md flex items-center gap-2 disabled:opacity-50">{isSimulating ? <Loader2 size={14} className="animate-spin" /> : <Maximize2 size={14} />} SCAN</button>
+            <button onClick={() => setInteractionMode(interactionMode === 'placement' ? 'none' : 'placement')} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider shadow-md ${interactionMode === 'placement' ? 'bg-amber-500 text-white' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>DEPLOY</button>
           </div>
         </header>
 
@@ -489,7 +410,6 @@ const App: React.FC = () => {
             <div ref={mapContainerRef} className="w-full h-full" />
             <Heatmap points={coverageData.points} step={coverageData.step} map={mapInstance} />
             {interactionMode === 'probe' && probeLocation && mapInstance && <PhoneSimulator state={phoneState} map={mapInstance} mapVersion={mapVersion} />}
-            
             <div className="absolute inset-0 pointer-events-none z-[500]">
                {mapInstance && sites.map(site => {
                   const pt = mapInstance.latLngToContainerPoint([site.lat, site.lng]);
@@ -503,20 +423,11 @@ const App: React.FC = () => {
                   const pt = mapInstance.latLngToContainerPoint([c.lat, c.lng]);
                   return (
                     <div key={c.id} className="absolute pointer-events-auto -translate-x-1/2 -translate-y-1/2 group" style={{ left: pt.x, top: pt.y }}>
-                       <div className="relative">
-                          <div className="w-6 h-6 rounded-full bg-amber-500 border-2 border-white shadow-md flex items-center justify-center text-white">
-                             <MessageSquare size={10} />
-                          </div>
-                          <div className="absolute bottom-8 left-1/2 -translate-x-1/2 bg-white px-3 py-1.5 rounded-lg shadow-xl border border-slate-100 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-[1000] flex items-center gap-2">
-                             <span className="text-[10px] font-bold text-slate-700">{c.text}</span>
-                             <button onClick={() => deleteComment(c.id)} className="text-red-400 hover:text-red-600"><Trash2 size={12} /></button>
-                          </div>
-                       </div>
+                       <div className="relative"><div className="w-6 h-6 rounded-full bg-amber-500 border-2 border-white shadow-md flex items-center justify-center text-white"><MessageSquare size={10} /></div><div className="absolute bottom-8 left-1/2 -translate-x-1/2 bg-white px-3 py-1.5 rounded-lg shadow-xl border border-slate-100 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-[1000] flex items-center gap-2"><span className="text-[10px] font-bold text-slate-700">{c.text}</span><button onClick={() => setComments(prev => prev.filter(cn => cn.id !== c.id))} className="text-red-400 hover:text-red-600"><Trash2 size={12} /></button></div></div>
                     </div>
                   );
                })}
             </div>
-            
             <Legend showSimulator={interactionMode === 'probe' && !!probeLocation} />
           </div>
 
@@ -526,86 +437,22 @@ const App: React.FC = () => {
                 {activeTab === 'library' && (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                     {ANTENNA_LIBRARY.map(ant => (
-                      <div key={ant.id} className="p-6 border rounded-3xl hover:border-blue-500 transition-all bg-white group">
-                        <div className="flex justify-between items-start mb-4">
-                          <div>
-                            <h3 className="text-lg font-black text-slate-800 group-hover:text-blue-600">{ant.model}</h3>
-                            <p className="text-[10px] font-bold uppercase text-slate-400">{ant.vendor}</p>
-                          </div>
-                          <Radio size={18} className="text-slate-200" />
-                        </div>
-                        <div className="flex justify-between pt-4 border-t text-[10px] font-black uppercase text-slate-500">
-                          <span>{ant.gainDbi}dBi</span><span>{ant.ports} Ports</span>
-                        </div>
-                      </div>
+                      <div key={ant.id} className="p-6 border rounded-3xl hover:border-blue-500 transition-all bg-white group"><div className="flex justify-between items-start mb-4"><div><h3 className="text-lg font-black text-slate-800 group-hover:text-blue-600">{ant.model}</h3><p className="text-[10px] font-bold uppercase text-slate-400">{ant.vendor}</p></div><Radio size={18} className="text-slate-200" /></div><div className="flex justify-between pt-4 border-t text-[10px] font-black uppercase text-slate-500"><span>{ant.gainDbi}dBi</span><span>{ant.ports} Ports</span></div></div>
                     ))}
                   </div>
                 )}
-                
+                {activeTab === 'ai' && (
+                  <div className="max-w-3xl mx-auto h-[70vh] flex flex-col">
+                    <div className="flex-grow bg-slate-50 rounded-3xl p-8 overflow-y-auto mb-6 border shadow-inner custom-scrollbar">{chatHistory.map((m, i) => (<div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'} mb-4`}><div className={`p-5 rounded-2xl max-w-[85%] text-sm ${m.role === 'user' ? 'bg-blue-600 text-white shadow-lg' : 'bg-white border text-slate-800 shadow-sm'}`}>{m.text}</div></div>))}</div>
+                    <div className="flex gap-3 p-3 bg-white rounded-2xl border shadow-xl items-center"><input type="text" value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendChatMessage()} className="flex-grow px-4 py-3 outline-none font-bold text-slate-700" placeholder="Ask network advisor..." /><button onClick={sendChatMessage} className="bg-blue-600 p-3 rounded-xl text-white hover:bg-blue-700 shadow-lg"><Send size={20} /></button></div>
+                  </div>
+                )}
                 {activeTab === 'analytics' && (
                   <div className="space-y-12">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                      <div className="bg-slate-50 p-8 rounded-[2.5rem] border">
-                        <div className="text-[10px] font-black uppercase text-slate-400 mb-2">Total Sites</div>
-                        <div className="text-4xl font-black text-slate-800">{sites.length}</div>
-                      </div>
-                      <div className="bg-slate-50 p-8 rounded-[2.5rem] border">
-                        <div className="text-[10px] font-black uppercase text-slate-400 mb-2">Active Sectors</div>
-                        <div className="text-4xl font-black text-slate-800">{sites.reduce((acc, s) => acc + s.sectors.length, 0)}</div>
-                      </div>
-                      <div className="bg-slate-50 p-8 rounded-[2.5rem] border">
-                        <div className="text-[10px] font-black uppercase text-slate-400 mb-2">Field Notes</div>
-                        <div className="text-4xl font-black text-slate-800">{comments.length}</div>
-                      </div>
-                    </div>
-
-                    <div className="bg-white rounded-[2.5rem] border p-8">
-                      <h3 className="text-xl font-black text-slate-900 mb-6 flex items-center gap-2">
-                        <MessageSquare size={20} className="text-blue-600" />
-                        Project Audit Trail
-                      </h3>
-                      {comments.length === 0 ? (
-                        <div className="py-12 text-center text-slate-400 font-bold uppercase text-xs">No project notes yet.</div>
-                      ) : (
-                        <div className="space-y-4">
-                          {comments.sort((a,b) => b.timestamp - a.timestamp).map(c => (
-                            <div key={c.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border hover:border-blue-200 transition-all group">
-                              <div className="flex items-center gap-4">
-                                <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 font-black text-xs">A</div>
-                                <div>
-                                  <div className="text-[11px] font-bold text-slate-800">{c.text}</div>
-                                  <div className="text-[9px] font-medium text-slate-400 uppercase">{new Date(c.timestamp).toLocaleString()}</div>
-                                </div>
-                              </div>
-                              <button 
-                                onClick={() => {
-                                  mapInstance?.flyTo([c.lat, c.lng], 16);
-                                  setActiveTab('map');
-                                }}
-                                className="opacity-0 group-hover:opacity-100 p-2 bg-white rounded-xl shadow-sm border text-blue-600 transition-all flex items-center gap-2 text-[9px] font-black uppercase"
-                              >
-                                View <ChevronRight size={14} />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {activeTab === 'ai' && (
-                  <div className="max-w-3xl mx-auto h-[70vh] flex flex-col">
-                    <div className="flex-grow bg-slate-50 rounded-3xl p-8 overflow-y-auto mb-6 border shadow-inner custom-scrollbar">
-                      {chatHistory.map((m, i) => (
-                        <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'} mb-4`}>
-                          <div className={`p-5 rounded-2xl max-w-[85%] text-sm ${m.role === 'user' ? 'bg-blue-600 text-white shadow-lg' : 'bg-white border text-slate-800 shadow-sm'}`}>{m.text}</div>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="flex gap-3 p-3 bg-white rounded-2xl border shadow-xl items-center">
-                      <input type="text" value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendChatMessage()} className="flex-grow px-4 py-3 outline-none font-bold text-slate-700" placeholder="Ask advisor..." />
-                      <button onClick={sendChatMessage} className="bg-blue-600 p-3 rounded-xl text-white hover:bg-blue-700 shadow-lg"><Send size={20} /></button>
+                      <div className="bg-slate-50 p-8 rounded-[2.5rem] border"><div className="text-[10px] font-black uppercase text-slate-400 mb-2">Deployed Nodes</div><div className="text-4xl font-black text-slate-800">{sites.length}</div></div>
+                      <div className="bg-slate-50 p-8 rounded-[2.5rem] border"><div className="text-[10px] font-black uppercase text-slate-400 mb-2">Sector Capacity</div><div className="text-4xl font-black text-slate-800">{sites.reduce((acc, s) => acc + s.sectors.length, 0)}</div></div>
+                      <div className="bg-slate-50 p-8 rounded-[2.5rem] border"><div className="text-[10px] font-black uppercase text-slate-400 mb-2">Project Notes</div><div className="text-4xl font-black text-slate-800">{comments.length}</div></div>
                     </div>
                   </div>
                 )}

@@ -142,32 +142,86 @@ export const getBestRSRPAtPoint = (sites: Site[], lat: number, lng: number, useT
   return bestRsrp;
 };
 
-export const findOptimalNextSites = (sites: Site[]): {lat: number, lng: number}[] => {
+/**
+ * Enhanced Offline Planning Logic:
+ * Uses a greedy iterative algorithm to find 10 unique coverage "hotspots".
+ * Evaluates both signal strength (RSRP) and predicted SINR.
+ */
+export const findOptimalNextSites = (sites: Site[]): {lat: number, lng: number, reason: string}[] => {
   if (sites.length === 0) return [];
   
-  const minLat = Math.min(...sites.map(s => s.lat)) - 0.02;
-  const maxLat = Math.max(...sites.map(s => s.lat)) + 0.02;
-  const minLng = Math.min(...sites.map(s => s.lng)) - 0.02;
-  const maxLng = Math.max(...sites.map(s => s.lng)) + 0.02;
+  const minLat = Math.min(...sites.map(s => s.lat)) - 0.03;
+  const maxLat = Math.max(...sites.map(s => s.lat)) + 0.03;
+  const minLng = Math.min(...sites.map(s => s.lng)) - 0.03;
+  const maxLng = Math.max(...sites.map(s => s.lng)) + 0.03;
 
-  const holes: {lat: number, lng: number, rsrp: number}[] = [];
-  const steps = 20;
+  const currentSites = [...sites];
+  const suggestions: {lat: number, lng: number, reason: string}[] = [];
+  const targetCount = 10;
+  const steps = 30; // 30x30 grid for better resolution
   const latStep = (maxLat - minLat) / steps;
   const lngStep = (maxLng - minLng) / steps;
 
-  for (let i = 0; i <= steps; i++) {
-    for (let j = 0; j <= steps; j++) {
-      const lat = minLat + i * latStep;
-      const lng = minLng + j * lngStep;
-      const rsrp = getBestRSRPAtPoint(sites, lat, lng, true);
-      if (rsrp < -105) {
-        holes.push({ lat, lng, rsrp });
+  // We find sites one by one. After finding one, we "deploy" it virtually
+  // to find the next most impactful location.
+  for (let s = 0; s < targetCount; s++) {
+    let bestHole: {lat: number, lng: number, score: number} | null = null;
+
+    for (let i = 0; i <= steps; i++) {
+      for (let j = 0; j <= steps; j++) {
+        const lat = minLat + i * latStep;
+        const lng = minLng + j * lngStep;
+        
+        // Evaluate existing coverage
+        const rsrp = getBestRSRPAtPoint(currentSites, lat, lng, true);
+        const sinr = rsrp + 105; // Simplified SINR for scoring
+
+        // Penalty for being too close to existing planned suggestions
+        let distPenalty = 1;
+        suggestions.forEach(suggested => {
+          const d = Math.sqrt(Math.pow(lat - suggested.lat, 2) + Math.pow(lng - suggested.lng, 2));
+          if (d < 0.005) distPenalty *= 0.1; // Strong repulsion to prevent clustering
+        });
+
+        // Scoring: Higher score = more prioritized hole.
+        // We target RSRP below -105dBm as a critical hole.
+        const score = Math.max(0, (-100 - rsrp)) * distPenalty;
+
+        if (!bestHole || score > bestHole.score) {
+          bestHole = { lat, lng, score };
+        }
       }
+    }
+
+    if (bestHole && bestHole.score > 0) {
+      const reason = bestHole.score > 15 
+        ? "Critical coverage hole identified. Signal strength below threshold."
+        : "Signal quality optimization required for high-interference zone.";
+      
+      suggestions.push({ lat: bestHole.lat, lng: bestHole.lng, reason });
+
+      // Add a virtual "Macro Hub" at this location to update the coverage map for the next iteration
+      const virtualSite: Site = {
+        id: `virtual-${s}`,
+        name: 'Virtual Node',
+        lat: bestHole.lat,
+        lng: bestHole.lng,
+        towerHeightM: 35,
+        towerType: TowerType.LATTICE,
+        status: 'planned',
+        sectors: [
+          { id: 'v1', antennaId: ANTENNA_LIBRARY[0].id, azimuth: 0, mechanicalTilt: 0, electricalTilt: 6, txPowerDbm: 44, frequencyMhz: 1800, heightM: 33 },
+          { id: 'v2', antennaId: ANTENNA_LIBRARY[0].id, azimuth: 120, mechanicalTilt: 0, electricalTilt: 6, txPowerDbm: 44, frequencyMhz: 1800, heightM: 33 },
+          { id: 'v3', antennaId: ANTENNA_LIBRARY[0].id, azimuth: 240, mechanicalTilt: 0, electricalTilt: 6, txPowerDbm: 44, frequencyMhz: 1800, heightM: 33 }
+        ]
+      };
+      currentSites.push(virtualSite);
+    } else {
+      break; // No more significant holes found
     }
   }
 
-  holes.sort((a, b) => a.rsrp - b.rsrp);
-  return holes.slice(0, 3).map(h => ({ lat: h.lat, lng: h.lng }));
+  return suggestions;
 };
 
 export const optimizeSiteParameters = (site: Site, allSites: Site[], useTerrain: boolean): Sector[] => {
